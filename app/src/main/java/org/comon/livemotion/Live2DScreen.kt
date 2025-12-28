@@ -3,6 +3,7 @@ package org.comon.livemotion
 import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -10,16 +11,28 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import org.comon.livemotion.demo.minimum.LAppMinimumLive2DManager
 
 @Composable
 fun Live2DScreen(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    faceParams: Map<String, Float>? = null
 ) {
     val context: Context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
     val glView = remember {
         Live2DGLSurfaceView(context)
+    }
+
+    // 얼굴 파라미터 업데이트가 있을 때 GL Thread로 전달
+    LaunchedEffect(faceParams) {
+        faceParams?.let { params ->
+            // Log.d("Live2DScreen", "Applying Face Params: $params")
+            glView.queueEvent {
+                LAppMinimumLive2DManager.getInstance().applyFacePose(params)
+            }
+        }
     }
 
     AndroidView(

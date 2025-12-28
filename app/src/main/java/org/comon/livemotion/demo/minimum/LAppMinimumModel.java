@@ -93,6 +93,19 @@ public class LAppMinimumModel extends CubismUserModel {
             isMotionUpdated = motionManager.updateMotion(model, deltaTimeSeconds);
         }
 
+        // 얼굴 트래킹 파라미터 강제 적용 (가장 높은 우선순위로 모션과 중첩)
+        synchronized (faceParameters) {
+            for (Map.Entry<CubismId, Float> entry : faceParameters.entrySet()) {
+                model.setParameterValue(entry.getKey(), entry.getValue());
+
+                // 데이터 전달 확인을 위한 로그 (Angle X, Y, Z 모두 확인)
+                String idStr = entry.getKey().getString();
+                if (idStr.equals("ParamAngleX") || idStr.equals("ParamAngleY") || idStr.equals("ParamAngleZ")) {
+                    CubismFramework.coreLogFunction("[APP] Apply " + idStr + ": " + entry.getValue());
+                }
+            }
+        }
+
         // モデルの状態を保存
         model.saveParameters();
 
@@ -110,8 +123,8 @@ public class LAppMinimumModel extends CubismUserModel {
             expressionManager.updateMotion(model, deltaTimeSeconds);
         }
 
-        // ドラッグ追従機能
-        // ドラッグによる顔の向きの調整
+        // ドラッグ追従機能 (얼굴 트래킹 사용을 위해 비활성화)
+        /*
         float dragX = dragManager.getX();
         float dragY = dragManager.getY();
 
@@ -122,9 +135,10 @@ public class LAppMinimumModel extends CubismUserModel {
         // ドラッグによる体の向きの調整
         model.addParameterValue(idParamBodyAngleX, dragX * 10); // -10から10の値を加える
 
-        // ドラッグによる目の向きの調整
+        // ドラッグによる目の向き의 조정
         model.addParameterValue(idParamEyeBallX, dragX);  // -1から1の値を加える
         model.addParameterValue(idParamEyeBallY, dragY);
+        */
 
         // Breath Function
         if (breath != null) {
@@ -141,9 +155,25 @@ public class LAppMinimumModel extends CubismUserModel {
             pose.updateParameters(model, deltaTimeSeconds);
         }
 
-        model.update();
 
+        model.update();
         isUpdated(true);
+    }
+
+    /**
+     * 외부(얼굴 인식 등)로부터 전달받은 파라미터를 모델에 적용한다.
+     * GL Thread에서 호출되어야 함.
+     * @param params 파라미터 ID와 값의 맵
+     */
+    public void applyFacePose(Map<String, Float> params) {
+        if (model == null || params == null) return;
+
+        synchronized (faceParameters) {
+            for (Map.Entry<String, Float> entry : params.entrySet()) {
+                CubismId id = CubismFramework.getIdManager().getId(entry.getKey());
+                faceParameters.put(id, entry.getValue());
+            }
+        }
     }
 
     /**
@@ -446,6 +476,11 @@ public class LAppMinimumModel extends CubismUserModel {
      * 読み込まれている表情のマップ
      */
     private final Map<String, ACubismMotion> expressions = new HashMap<String, ACubismMotion>();
+
+    /**
+     * 얼굴 트래킹 파라미터 캐시
+     */
+    private final Map<CubismId, Float> faceParameters = new HashMap<>();
 
     /**
      * パラメーターID: ParamAngleX

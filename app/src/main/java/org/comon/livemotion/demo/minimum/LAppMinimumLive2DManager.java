@@ -72,6 +72,16 @@ public class LAppMinimumLive2DManager {
     }
 
     /**
+     * 외부(얼굴 인식 등)로부터 전달받은 파라미터를 모델에 적용한다.
+     * @param params 파라미터 ID와 값의 맵
+     */
+    public void applyFacePose(java.util.Map<String, Float> params) {
+        if (model != null) {
+            model.applyFacePose(params);
+        }
+    }
+
+    /**
      * 現在のシーンで保持しているモデルを返す
      *
      * @param number モデルリストのインデックス値
