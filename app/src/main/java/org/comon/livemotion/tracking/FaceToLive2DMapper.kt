@@ -7,7 +7,21 @@ import kotlin.math.absoluteValue
  */
 class FaceToLive2DMapper {
     private var lastPose = FacePose()
-    private val alpha = 0.4f // 스무딩과 반응성의 균형 (0.3 -> 0.4)
+    
+    /**
+     * EMA (Exponential Moving Average) 스무딩 계수
+     * 
+     * 공식: smoothed = lastValue + alpha * (newValue - lastValue)
+     * 
+     * - 낮은 값 (0.1~0.3): 부드럽지만 반응이 느림 (떨림 억제에 효과적)
+     * - 중간 값 (0.3~0.5): 부드러움과 반응성의 균형
+     * - 높은 값 (0.5~0.8): 빠른 반응이지만 떨림이 생길 수 있음
+     * 
+     * 조정 팁:
+     * - 캐릭터가 너무 느리게 따라오면 값을 높이세요 (예: 0.5)
+     * - 캐릭터가 떨리면 값을 낮추세요 (예: 0.3)
+     */
+    private val alpha = 0.4f
 
     /**
      * 내부 상태를 초기화하여 얼굴이 나타날 때 이전 위치에서 튀는 현상을 방지
@@ -20,46 +34,59 @@ class FaceToLive2DMapper {
      * 새로운 얼굴 포즈를 받아 스무딩을 적용하고 Live2D 파라미터 맵으로 변환
      */
     fun map(newPose: FacePose): Map<String, Float> {
-        // EMA 스무딩
+        // EMA 스무딩 (모든 필드에 적용)
         val smoothed = FacePose(
             yaw = smooth(lastPose.yaw, newPose.yaw),
             pitch = smooth(lastPose.pitch, newPose.pitch),
             roll = smooth(lastPose.roll, newPose.roll),
             mouthOpen = smooth(lastPose.mouthOpen, newPose.mouthOpen),
+            mouthForm = smooth(lastPose.mouthForm, newPose.mouthForm),
             eyeLOpen = smooth(lastPose.eyeLOpen, newPose.eyeLOpen),
-            eyeROpen = smooth(lastPose.eyeROpen, newPose.eyeROpen)
+            eyeROpen = smooth(lastPose.eyeROpen, newPose.eyeROpen),
+            eyeBallX = smooth(lastPose.eyeBallX, newPose.eyeBallX),
+            eyeBallY = smooth(lastPose.eyeBallY, newPose.eyeBallY)
         )
         lastPose = smoothed
 
         val params = mutableMapOf<String, Float>()
         
-        // VTubeStudio 스타일 파라미터 매핑 (ID는 모델에 따라 다를 수 있으나 표준 ID 사용)
-        // LAppMinimumModel에서 사용하는 ID에 맞춰 매핑
-        // 드래그 로직의 가중치(30, 10, 1)와 결합하여 자연스러운 움직임 유도
+        // ===========================================
+        // 머리 회전 파라미터 (AngleX, AngleY, AngleZ)
+        // ===========================================
+        // Live2D 표준 범위: -30 ~ 30
         params["ParamAngleX"] = (smoothed.yaw * 30f).coerceIn(-30f, 30f)
-        params["ParamAngleY"] = (smoothed.pitch * 40f).coerceIn(-30f, 30f) // 가중치 상향 (30 -> 40)
+        // ParamAngleY: Live2D는 양수=위, 음수=아래이므로 부호 반전
+        params["ParamAngleY"] = (-smoothed.pitch * 40f).coerceIn(-30f, 30f)
         
         // AngleZ는 실측 고개 기울기(roll)와 드래그 로직 특유의 수식(X*Y)을 혼합
         val dragStyleZ = smoothed.yaw * smoothed.pitch * (-30f)
         val realRollZ = smoothed.roll * 30f
         params["ParamAngleZ"] = (realRollZ + dragStyleZ).coerceIn(-30f, 30f)
         
+        // ===========================================
+        // 눈 파라미터
+        // ===========================================
         params["ParamEyeLOpen"] = smoothed.eyeLOpen.coerceIn(0f, 1f)
         params["ParamEyeROpen"] = smoothed.eyeROpen.coerceIn(0f, 1f)
-        params["ParamMouthOpenY"] = smoothed.mouthOpen.coerceIn(0f, 1f)
-
-        // 몸과 눈동자 연동 (드래그 로직 가중치 적용)
-        params["ParamBodyAngleX"] = (smoothed.yaw * 10f).coerceIn(-10f, 10f)
-        params["ParamEyeBallX"] = smoothed.yaw.coerceIn(-1f, 1f)
         
-        // Pitch(상하 고개)가 시선에 미치는 영향을 낮춤 (0.5f 가중치)
-        // 또한 Yaw 회전 시 발생하는 Pitch 오차를 일부 상쇄하기 위한 보정 시도
-        val correctedPitch = smoothed.pitch - (smoothed.yaw.absoluteValue * 0.1f)
-        params["ParamEyeBallY"] = (correctedPitch * 0.7f).coerceIn(-1f, 1f)
+        // ===========================================
+        // 입 파라미터
+        // ===========================================
+        params["ParamMouthOpenY"] = smoothed.mouthOpen.coerceIn(0f, 1f)
+        // 입 모양 (미소) - 모델이 지원하지 않으면 무시됨
+        params["ParamMouthForm"] = smoothed.mouthForm.coerceIn(0f, 1f)
 
-        // if (LAppDefine.DEBUG_LOG_ENABLE) {
-        //     android.util.Log.d("Mapper", "Mapped Params: AngleX=${"%.2f".format(params["ParamAngleX"])}, AngleY=${"%.2f".format(params["ParamAngleY"])}")
-        // }
+        // ===========================================
+        // 몸 파라미터
+        // ===========================================
+        params["ParamBodyAngleX"] = (smoothed.yaw * 10f).coerceIn(-10f, 10f)
+        
+        // ===========================================
+        // 시선 파라미터 (Iris Tracking 기반)
+        // ===========================================
+        // 이제 실제 눈동자 위치 데이터를 사용 (고개 방향과 독립)
+        params["ParamEyeBallX"] = smoothed.eyeBallX.coerceIn(-1f, 1f)
+        params["ParamEyeBallY"] = smoothed.eyeBallY.coerceIn(-1f, 1f)
 
         return params
     }
@@ -68,3 +95,4 @@ class FaceToLive2DMapper {
         return last + alpha * (current - last)
     }
 }
+

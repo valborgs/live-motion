@@ -16,13 +16,21 @@ import org.comon.livemotion.demo.minimum.LAppMinimumLive2DManager
 @Composable
 fun Live2DScreen(
     modifier: Modifier = Modifier,
-    faceParams: Map<String, Float>? = null
+    faceParams: Map<String, Float>? = null,
+    isZoomEnabled: Boolean = false,
+    isMoveEnabled: Boolean = false
 ) {
     val context: Context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
     val glView = remember {
         Live2DGLSurfaceView(context)
+    }
+
+    // 제스처 모드 업데이트
+    LaunchedEffect(isZoomEnabled, isMoveEnabled) {
+        glView.isZoomEnabled = isZoomEnabled
+        glView.isMoveEnabled = isMoveEnabled
     }
 
     // 얼굴 파라미터 업데이트가 있을 때 GL Thread로 전달
@@ -55,3 +63,4 @@ fun Live2DScreen(
         }
     }
 }
+

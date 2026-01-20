@@ -31,6 +31,50 @@ public class LAppMinimumLive2DManager {
         model.loadAssets(dir, modelDirectoryName + ".model3.json");
     }
 
+    // 캐릭터 스케일 및 오프셋 (확대/이동 기능)
+    private float modelScale = 1.0f;
+    private float modelOffsetX = 0.0f;
+    private float modelOffsetY = 0.0f;
+
+    /**
+     * 캐릭터 스케일 설정
+     * @param scale 1.0 = 기본 크기, 2.0 = 2배 확대
+     */
+    public void setModelScale(float scale) {
+        this.modelScale = Math.max(0.5f, Math.min(10.0f, scale));
+    }
+
+    public float getModelScale() {
+        return modelScale;
+    }
+
+    /**
+     * 캐릭터 오프셋 설정
+     * @param offsetX X축 이동 (-1.0 ~ 1.0)
+     * @param offsetY Y축 이동 (-1.0 ~ 1.0)
+     */
+    public void setModelOffset(float offsetX, float offsetY) {
+        this.modelOffsetX = Math.max(-10.0f, Math.min(10.0f, offsetX));
+        this.modelOffsetY = Math.max(-10.0f, Math.min(10.0f, offsetY));
+    }
+
+    public float getModelOffsetX() {
+        return modelOffsetX;
+    }
+
+    public float getModelOffsetY() {
+        return modelOffsetY;
+    }
+
+    /**
+     * 스케일 및 오프셋 리셋
+     */
+    public void resetModelTransform() {
+        modelScale = 1.0f;
+        modelOffsetX = 0.0f;
+        modelOffsetY = 0.0f;
+    }
+
     // モデル更新処理及び描画処理を行う
     public void onUpdate() {
         int width = LAppMinimumDelegate.getInstance().getWindowWidth();
@@ -45,6 +89,12 @@ public class LAppMinimumLive2DManager {
         } else {
             projection.scale((float) height / (float) width, 1.0f);
         }
+
+        // 사용자 스케일 적용 (비율 유지)
+        projection.scaleRelative(modelScale, modelScale);
+        
+        // 사용자 오프셋 적용
+        projection.translateRelative(modelOffsetX / modelScale, modelOffsetY / modelScale);
 
         // 必要があればここで乗算する
         if (viewMatrix != null) {

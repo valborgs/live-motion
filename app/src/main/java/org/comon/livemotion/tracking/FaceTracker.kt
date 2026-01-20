@@ -40,6 +40,11 @@ class FaceTracker(
     private val _isCalibratingUI = MutableStateFlow(false)
     val isCalibratingUI: StateFlow<Boolean> = _isCalibratingUI
 
+    // GPU/CPU 가속 상태
+    private val _isGpuEnabled = MutableStateFlow(false)  // 기본값: CPU
+    val isGpuEnabled: StateFlow<Boolean> = _isGpuEnabled
+    private var currentDelegate: Delegate = Delegate.CPU
+
     private var faceLandmarker: FaceLandmarker? = null
     private var cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
@@ -62,35 +67,103 @@ class FaceTracker(
     private val GRACE_PERIOD_MS = 3000L
 
     init {
-        setupFaceLandmarker()
+        setupFaceLandmarker(useGpu = false)  // 기본값: CPU
     }
 
-    private fun setupFaceLandmarker() {
+    /**
+     * GPU/CPU 가속 전환
+     * @param useGpu true면 GPU, false면 CPU 사용
+     */
+    fun setGpuEnabled(useGpu: Boolean) {
+        if (_isGpuEnabled.value == useGpu) return
+        
+        Log.i(TAG, "🔄 Delegate 전환 요청: ${if (useGpu) "GPU" else "CPU"}")
+        
+        // 기존 FaceLandmarker 정리
+        faceLandmarker?.close()
+        faceLandmarker = null
+        
+        // 새 delegate로 재초기화
+        setupFaceLandmarker(useGpu = useGpu)
+    }
+
+    private fun setupFaceLandmarker(useGpu: Boolean = true) {
+        val startTime = System.currentTimeMillis()
+        
+        // 요청된 delegate 설정
+        val requestedDelegate = if (useGpu) Delegate.GPU else Delegate.CPU
+        
+        Log.i(TAG, "🔧 FaceLandmarker 초기화 시작 - 요청: ${if (useGpu) "GPU" else "CPU"}")
+        
         val baseOptionsBuilder = BaseOptions.builder()
-            .setDelegate(Delegate.CPU) // GPU 사용 시 초기화 이슈가 있을 수 있어 우선 CPU 권장
+            .setDelegate(requestedDelegate)
             .setModelAssetPath("face_landmarker.task") // assets에 있어야 함
 
-        val optionsBuilder = FaceLandmarker.FaceLandmarkerOptions.builder()
-            .setBaseOptions(baseOptionsBuilder.build())
-            .setRunningMode(RunningMode.LIVE_STREAM)
-            .setResultListener { result, _ -> processResult(result) }
-            .setErrorListener { error -> Log.e(TAG, "MediaPipe Error: ${error.message}") }
-            .setNumFaces(1)
-            .setOutputFaceBlendshapes(true) // 눈, 입 벌림 계산에 사용
+        try {
+            val optionsBuilder = FaceLandmarker.FaceLandmarkerOptions.builder()
+                .setBaseOptions(baseOptionsBuilder.build())
+                .setRunningMode(RunningMode.LIVE_STREAM)
+                .setResultListener { result, _ -> processResult(result) }
+                .setErrorListener { error -> Log.e(TAG, "MediaPipe Error: ${error.message}") }
+                .setNumFaces(1)
+                .setOutputFaceBlendshapes(true) // 눈, 입 벌림 계산에 사용
 
-        faceLandmarker = FaceLandmarker.createFromOptions(context, optionsBuilder.build())
+            faceLandmarker = FaceLandmarker.createFromOptions(context, optionsBuilder.build())
+            
+            currentDelegate = requestedDelegate
+            _isGpuEnabled.value = (currentDelegate == Delegate.GPU)
+            
+            val elapsedTime = System.currentTimeMillis() - startTime
+            Log.i(TAG, "✅ FaceLandmarker 초기화 완료 - Delegate: ${if (currentDelegate == Delegate.GPU) "GPU 🚀" else "CPU"}, 소요시간: ${elapsedTime}ms")
+        } catch (e: Exception) {
+            // GPU로 초기화 실패 시 CPU로 재시도
+            if (requestedDelegate == Delegate.GPU) {
+                Log.w(TAG, "⚠️ GPU로 FaceLandmarker 초기화 실패, CPU로 재시도: ${e.message}")
+                val cpuBaseOptions = BaseOptions.builder()
+                    .setDelegate(Delegate.CPU)
+                    .setModelAssetPath("face_landmarker.task")
+                
+                val cpuOptionsBuilder = FaceLandmarker.FaceLandmarkerOptions.builder()
+                    .setBaseOptions(cpuBaseOptions.build())
+                    .setRunningMode(RunningMode.LIVE_STREAM)
+                    .setResultListener { result, _ -> processResult(result) }
+                    .setErrorListener { error -> Log.e(TAG, "MediaPipe Error: ${error.message}") }
+                    .setNumFaces(1)
+                    .setOutputFaceBlendshapes(true)
+                
+                faceLandmarker = FaceLandmarker.createFromOptions(context, cpuOptionsBuilder.build())
+                
+                currentDelegate = Delegate.CPU
+                _isGpuEnabled.value = false
+                
+                val elapsedTime = System.currentTimeMillis() - startTime
+                Log.i(TAG, "✅ FaceLandmarker 초기화 완료 - Delegate: CPU (GPU 폴백), 소요시간: ${elapsedTime}ms")
+            } else {
+                throw e
+            }
+        }
     }
 
-    fun startCamera(previewSurface: Preview.SurfaceProvider) {
+    // 카메라 관련 변수
+    private var cameraProvider: ProcessCameraProvider? = null
+    private var preview: Preview? = null
+    private var imageAnalyzer: ImageAnalysis? = null
+    private var currentPreviewSurface: Preview.SurfaceProvider? = null
+
+    /**
+     * 카메라 시작 (프리뷰 없이 얼굴 추적만)
+     * 프리뷰를 표시하려면 attachPreview()를 별도로 호출
+     */
+    fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
+            cameraProvider = cameraProviderFuture.get()
 
-            val preview = Preview.Builder().build().also {
-                it.surfaceProvider = previewSurface
-            }
+            // 프리뷰 UseCase (초기에는 surfaceProvider 없음)
+            preview = Preview.Builder().build()
 
-            val imageAnalyzer = ImageAnalysis.Builder()
+            // ImageAnalysis UseCase (얼굴 추적용)
+            imageAnalyzer = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                 .build()
@@ -103,14 +176,34 @@ class FaceTracker(
             val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
 
             try {
-                cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(
+                cameraProvider?.unbindAll()
+                // 프리뷰와 이미지 분석 모두 바인딩
+                cameraProvider?.bindToLifecycle(
                     lifecycleOwner, cameraSelector, preview, imageAnalyzer
                 )
+                Log.d(TAG, "📷 카메라 시작 완료")
             } catch (e: Exception) {
                 Log.e(TAG, "Use case binding failed", e)
             }
         }, ContextCompat.getMainExecutor(context))
+    }
+
+    /**
+     * 프리뷰 연결 (카메라가 이미 시작된 상태에서 호출)
+     */
+    fun attachPreview(surfaceProvider: Preview.SurfaceProvider) {
+        currentPreviewSurface = surfaceProvider
+        preview?.surfaceProvider = surfaceProvider
+        Log.d(TAG, "📷 프리뷰 연결됨")
+    }
+
+    /**
+     * 프리뷰 해제 (카메라는 계속 실행)
+     */
+    fun detachPreview() {
+        preview?.surfaceProvider = null
+        currentPreviewSurface = null
+        Log.d(TAG, "📷 프리뷰 해제됨")
     }
 
     private fun analyzeImage(imageProxy: ImageProxy) {
@@ -238,41 +331,121 @@ class FaceTracker(
         val normFactor = 1.0f / (faceHeight.coerceAtLeast(0.05f))
 
         // 1. Yaw (좌우 회전): 정규화된 값 (-1.0 ~ 1.0) 추출
-        // Mirroring: 전면 카메라이므로 방향 반전
+        // 거울 모드: 전면 카메라이므로 방향 반전 (- 부호)
         val yawNorm = -(rightEye.z() - leftEye.z()) * 15f
 
-        // 2. Pitch (상하 회전): 정규화된 값 (-1.0 ~ 1.0) 추출
-        // Yaw 회전에 따른 원근 오차를 최소화하기 위해 눈 안쪽 구석(inner corner) 포인트 사용
-        val eyeLInner = landmarks[133]
-        val eyeRInner = landmarks[362]
-        val eyeYCenter = (eyeLInner.y() + eyeRInner.y()) / 2
-        
-        // 고개를 좌우로 돌릴 때 원근법 때문에 눈 높이가 낮아 보이는 현상을 상쇄하기 위한 보정
-        // Yaw 값이 클수록(좌우로 많이 돌릴수록) Pitch 값을 약간 들어올려(더해줌) 수평을 유지
-        val yawCorrection = kotlin.math.abs(yawNorm) * 0.05f 
-        
-        val pitchPoint = (eyeYCenter - nose.y()) + yawCorrection
-        // 민감도를 다시 조정하여 자연스러운 움직임 유도
-        val pitchNorm = pitchPoint * 6f * normFactor
+        // 2. Pitch (상하 회전): Z좌표(깊이) 기반 계산
+        // Y좌표는 Yaw 회전 시 원근법 왜곡이 심하므로 Z좌표 사용
+        // 고개를 숙이면 코끝이 앞으로(Z 감소), 들면 뒤로(Z 증가)
+        val noseBridge = landmarks[6]  // 코 다리 (미간 근처)
+        val pitchZ = nose.z() - noseBridge.z()  // 코끝과 코 다리의 Z 차이
+        val pitchNorm = pitchZ * 15f  // 민감도 조정
 
         // 3. Roll (기울기): 실측 각도를 정규화 (-1.0 ~ 1.0)
-        // Mirroring: 방향 보정
+        // 거울 모드: 사용자와 같은 방향으로 기울어지도록 반전 (- 부호)
         val rollDeg = atan2(rightEye.y() - leftEye.y(), rightEye.x() - leftEye.x()) * (180 / Math.PI).toFloat()
-        val rollNorm = rollDeg / 20f // 거울 모드 대응을 위해 - 부호 제거
+        val rollNorm = -rollDeg / 20f
 
-        // 개폐 정도 (Blendshapes)
+        // ===========================================
+        // 4. 시선 추적 (Iris Tracking)
+        // ===========================================
+        // MediaPipe Face Landmarker 눈동자 랜드마크:
+        // - 왼쪽 눈동자 중심: 468
+        // - 오른쪽 눈동자 중심: 473
+        val (eyeBallX, eyeBallY) = calculateIrisPosition(landmarks)
+
+        // ===========================================
+        // 5. 개폐 정도 (Blendshapes)
+        // ===========================================
         val eyeL = scores["eyeBlinkLeft"] ?: 0f
         val eyeR = scores["eyeBlinkRight"] ?: 0f
-        val mouth = scores["jawOpen"] ?: 0f
+        val mouthRaw = scores["jawOpen"] ?: 0f
+        
+        // 입 벌림 임계값 적용: 작은 값(노이즈)은 0으로 처리
+        // 0.15 이하는 닫힌 입으로 간주하고, 이후 값을 0~1로 재정규화
+        val mouthThreshold = 0.15f
+        val mouth = ((mouthRaw - mouthThreshold) / (1f - mouthThreshold)).coerceIn(0f, 1f)
+        
+        // mouthForm: 미소 정도 계산 (왼쪽/오른쪽 미소 평균)
+        val mouthSmileL = scores["mouthSmileLeft"] ?: 0f
+        val mouthSmileR = scores["mouthSmileRight"] ?: 0f
+        val mouthForm = (mouthSmileL + mouthSmileR) / 2f
 
         return FacePose(
             yaw = yawNorm.coerceIn(-1.5f, 1.5f),
-            pitch = (pitchNorm + 0.1f).coerceIn(-1.5f, 1.5f),
+            pitch = pitchNorm.coerceIn(-1.5f, 1.5f),
             roll = rollNorm.coerceIn(-1.5f, 1.5f),
             eyeLOpen = 1f - eyeL,
             eyeROpen = 1f - eyeR,
-            mouthOpen = mouth
+            mouthOpen = mouth,
+            mouthForm = mouthForm.coerceIn(0f, 1f),
+            eyeBallX = eyeBallX,
+            eyeBallY = eyeBallY
         )
+    }
+
+    /**
+     * Iris(눈동자) 랜드마크를 사용하여 시선 방향을 계산합니다.
+     * 
+     * MediaPipe Face Landmarker 눈동자 인덱스:
+     * - 왼쪽 눈동자 중심: 468, 주변: 469~471
+     * - 오른쪽 눈동자 중심: 473, 주변: 474~476
+     * - 왼쪽 눈 외곽: outer=33, inner=133
+     * - 오른쪽 눈 외곽: outer=263, inner=362
+     * 
+     * @return Pair(eyeBallX, eyeBallY) 정규화된 시선 좌표 (-1 ~ 1)
+     */
+    private fun calculateIrisPosition(landmarks: List<NormalizedLandmark>): Pair<Float, Float> {
+        // 랜드마크가 충분하지 않으면 기본값 반환 (Face Landmarker는 478개 랜드마크 제공)
+        if (landmarks.size < 478) {
+            return Pair(0f, 0f)
+        }
+
+        // 왼쪽 눈
+        val irisL = landmarks[468]      // 왼쪽 눈동자 중심
+        val eyeLOuter = landmarks[33]   // 왼쪽 눈 바깥쪽
+        val eyeLInner = landmarks[133]  // 왼쪽 눈 안쪽
+        val eyeLTop = landmarks[159]    // 왼쪽 눈 위쪽
+        val eyeLBottom = landmarks[145] // 왼쪽 눈 아래쪽
+
+        // 오른쪽 눈
+        val irisR = landmarks[473]      // 오른쪽 눈동자 중심
+        val eyeROuter = landmarks[263]  // 오른쪽 눈 바깥쪽
+        val eyeRInner = landmarks[362]  // 오른쪽 눈 안쪽
+        val eyeRTop = landmarks[386]    // 오른쪽 눈 위쪽
+        val eyeRBottom = landmarks[374] // 오른쪽 눈 아래쪽
+
+        // 왼쪽 눈: 눈동자의 상대적 위치 계산
+        val eyeLWidth = eyeLInner.x() - eyeLOuter.x()
+        val eyeLHeight = eyeLBottom.y() - eyeLTop.y()
+        val irisLRelX = if (eyeLWidth > 0.001f) {
+            (irisL.x() - eyeLOuter.x()) / eyeLWidth
+        } else 0.5f
+        val irisLRelY = if (eyeLHeight > 0.001f) {
+            (irisL.y() - eyeLTop.y()) / eyeLHeight
+        } else 0.5f
+
+        // 오른쪽 눈: 눈동자의 상대적 위치 계산
+        val eyeRWidth = eyeROuter.x() - eyeRInner.x()
+        val eyeRHeight = eyeRBottom.y() - eyeRTop.y()
+        val irisRRelX = if (eyeRWidth > 0.001f) {
+            (irisR.x() - eyeRInner.x()) / eyeRWidth
+        } else 0.5f
+        val irisRRelY = if (eyeRHeight > 0.001f) {
+            (irisR.y() - eyeRTop.y()) / eyeRHeight
+        } else 0.5f
+
+        // 양쪽 눈 평균
+        val avgRelX = (irisLRelX + irisRRelX) / 2f
+        val avgRelY = (irisLRelY + irisRRelY) / 2f
+
+        // 정규화: 중앙(0.5) 기준으로 -1 ~ 1 범위로 변환
+        // 거울 모드: X축 반전 (- 부호)
+        val eyeBallX = -((avgRelX - 0.5f) * 2f).coerceIn(-1f, 1f)
+        // Y축: 위쪽이 양수, 아래쪽이 음수
+        val eyeBallY = -((avgRelY - 0.5f) * 2f).coerceIn(-1f, 1f)
+
+        return Pair(eyeBallX, eyeBallY)
     }
 
     private fun scoresToOpen(blinkScore: Float?): Float {
