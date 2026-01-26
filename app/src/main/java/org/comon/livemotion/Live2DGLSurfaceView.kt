@@ -38,6 +38,9 @@ class Live2DGLSurfaceView(context: Context): GLSurfaceView(context) {
         // OpenGL ES 2.0
         setEGLContextClientVersion(2)
 
+        // 뷰 생성 시 델리게이트 초기화 (재진입 시 리소스 갱신 위해)
+        LAppMinimumDelegate.getInstance().onStart(context as android.app.Activity)
+
         // Live2D minimum renderer
         setRenderer(GLRendererMinimum())
 

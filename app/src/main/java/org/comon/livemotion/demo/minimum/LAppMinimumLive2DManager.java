@@ -26,6 +26,10 @@ public class LAppMinimumLive2DManager {
     }
 
     public void loadModel(String modelDirectoryName) {
+        if (model != null) {
+            model.deleteModel();
+            model = null;
+        }
         String dir = modelDirectoryName + "/";
         model = new LAppMinimumModel(dir);
         model.loadAssets(dir, modelDirectoryName + ".model3.json");
@@ -77,6 +81,10 @@ public class LAppMinimumLive2DManager {
 
     // モデル更新処理及び描画処理を行う
     public void onUpdate() {
+        if (model == null || model.getModel() == null) {
+            return;
+        }
+
         int width = LAppMinimumDelegate.getInstance().getWindowWidth();
         int height = LAppMinimumDelegate.getInstance().getWindowHeight();
 

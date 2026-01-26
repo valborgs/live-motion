@@ -13,6 +13,11 @@
 3. [Pitch 계산 왜곡 문제](#3-pitch-계산-왜곡-문제)
 4. [입 벌림 임계값 처리](#4-입-벌림-임계값-처리)
 5. [EMA 스무딩 적용](#5-ema-스무딩-적용)
+6. [GPU 가속 및 Delegate 전환](#6-gpu-가속-및-delegate-전환)
+7. [캐릭터 확대 및 이동 기능](#7-캐릭터-확대-및-이동-기능)
+8. [카메라와 프리뷰의 구조적 분리](#8-카메라와-프리뷰의-구조적-분리)
+9. [렌더링 엔진 생명주기 안정화](#9-렌더링-엔진-생명주기-안정화)
+10. [얼굴 추적 파라미터 정교화 및 명시적 초기화](#10-얼굴-추적-파라미터-정교화-및-명시적-초기화)
 
 ---
 
@@ -249,6 +254,36 @@ Live2D 모델의 Projection 매트릭스에 개별적인 스케일과 오프셋�
 
 ---
 
+## 9. 렌더링 엔진 생명주기 안정화
+
+### 문제
+- 특정 상황에서 Live2D 렌더링 엔진이 정상적으로 초기화되지 않거나, 화면 전환 후 모델이 로드되지 않는 현상 발생
+
+### 해결 방법
+- `Live2DGLSurfaceView`의 초기화 시점에 `LAppMinimumDelegate`의 `onStart(context)`를 명시적으로 호출하여 네이티브 라이브러리와 렌더링 리소스를 안정적으로 확보
+- `LAppMinimumLive2DManager`에서 뷰포트 크기 계산 및 프로젝션 매트릭스 업데이트 로직을 보강하여 모델이 정확하게 화면에 표시되도록 함
+
+### 관련 파일
+- [Live2DGLSurfaceView.kt](file:///d:/comon/LiveMotion/app/src/main/java/org/comon/livemotion/Live2DGLSurfaceView.kt)
+- [LAppMinimumLive2DManager.java](file:///d:/comon/LiveMotion/app/src/main/java/org/comon/livemotion/demo/minimum/LAppMinimumLive2DManager.java)
+
+---
+
+## 10. 얼굴 추적 파라미터 정교화 및 명시적 초기화
+
+### 문제
+- 눈 깜빡임 등 일부 얼굴 파라미터가 0으로 고정되거나 노이즈로 인해 부자연스럽게 동작함
+- `FaceLandmarker` 초기화 시점을 앱 생명주기 또는 사용자 상태에 따라 세밀하게 제어할 필요가 있음
+
+### 해결 방법
+1. **명시적 초기화 메서드 분리**: `setupFaceLandmarker(useGpu: Boolean)`를 통해 GPU 사용 여부를 런타임에 결정하고 초기화를 명시적으로 수행할 수 있도록 개선
+2. **눈 깜빡임 로직 개선**: `eyeBlinkLeft/Right` 점수가 누락되거나 노이즈가 섞일 경우를 대비하여 기본값 처리 및 재정규화 로직 최적화
+
+### 관련 파일
+- [FaceTracker.kt](file:///d:/comon/LiveMotion/app/src/main/java/org/comon/livemotion/tracking/FaceTracker.kt)
+
+---
+
 ## 좌표계 참고
 
 ### MediaPipe 정규화 좌표
@@ -273,12 +308,12 @@ Live2D 모델의 Projection 매트릭스에 개별적인 스케일과 오프셋�
 | 파일 | 변경 내용 |
 |------|----------|
 | `FacePose.kt` | eyeBallX, eyeBallY, mouthForm 필드 추가 |
-| `FaceTracker.kt` | GPU 가속/폴백, 카메라-프리뷰 분리 API, Iris/Pitch/입 계산 최적화 |
+| `FaceTracker.kt` | 명시적 초기화 API, 얼굴 파라미터(눈동자/입/깜빡임) 추출 정교화 |
 | `FaceToLive2DMapper.kt` | EMA 스무딩 고도화 및 파라미터 매핑 브리지 |
 | `MainActivity.kt` | CPU/GPU, 확대, 이동, 프리뷰 토글 UI 및 상태 관리 |
 | `Live2DScreen.kt` | 줌/이동 모드 파라미터 연동 |
-| `Live2DGLSurfaceView.kt` | 핀치 줌, 드래그 제스처 처리 로직 |
-| `LAppMinimumLive2DManager.java` | 렌더링 매트릭스(스케일/오프셋) 제어 API |
+| `Live2DGLSurfaceView.kt` | 핀치 줌, 드래그 제스처 처리 및 생명주기(`onStart`) 연동 |
+| `LAppMinimumLive2DManager.java` | 렌더링 매트릭스 제어 및 뷰포트 업데이트 로직 보강 |
 
 ---
 

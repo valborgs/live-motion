@@ -11,11 +11,13 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import org.comon.livemotion.demo.minimum.LAppMinimumDelegate
 import org.comon.livemotion.demo.minimum.LAppMinimumLive2DManager
 
 @Composable
 fun Live2DScreen(
     modifier: Modifier = Modifier,
+    modelId: String? = null,
     faceParams: Map<String, Float>? = null,
     isZoomEnabled: Boolean = false,
     isMoveEnabled: Boolean = false
@@ -31,6 +33,15 @@ fun Live2DScreen(
     LaunchedEffect(isZoomEnabled, isMoveEnabled) {
         glView.isZoomEnabled = isZoomEnabled
         glView.isMoveEnabled = isMoveEnabled
+    }
+
+    // 모델 ID 변경 시 GL Thread로 작업 큐잉
+    LaunchedEffect(modelId) {
+        modelId?.let { id ->
+            glView.queueEvent {
+                LAppMinimumLive2DManager.getInstance().loadModel(id)
+            }
+        }
     }
 
     // 얼굴 파라미터 업데이트가 있을 때 GL Thread로 전달
@@ -60,6 +71,9 @@ fun Live2DScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+            // 화면을 나갈 때 델리게이트와 매니저를 해제하여 텍스처 캐시 등을 초기화함
+            LAppMinimumDelegate.getInstance().onStop()
+            LAppMinimumDelegate.releaseInstance()
         }
     }
 }

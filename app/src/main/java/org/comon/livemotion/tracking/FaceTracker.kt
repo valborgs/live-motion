@@ -67,7 +67,7 @@ class FaceTracker(
     private val GRACE_PERIOD_MS = 3000L
 
     init {
-        setupFaceLandmarker(useGpu = false)  // 기본값: CPU
+        // init에서는 초기화하지 않고 Compose의 LaunchedEffect 등에서 명시적으로 호출하도록 함
     }
 
     /**
@@ -87,7 +87,7 @@ class FaceTracker(
         setupFaceLandmarker(useGpu = useGpu)
     }
 
-    private fun setupFaceLandmarker(useGpu: Boolean = true) {
+    fun setupFaceLandmarker(useGpu: Boolean = true) {
         val startTime = System.currentTimeMillis()
         
         // 요청된 delegate 설정
@@ -357,8 +357,8 @@ class FaceTracker(
         // ===========================================
         // 5. 개폐 정도 (Blendshapes)
         // ===========================================
-        val eyeL = scores["eyeBlinkLeft"] ?: 0f
-        val eyeR = scores["eyeBlinkRight"] ?: 0f
+        val eyeL = scores["eyeBlinkRight"] ?: 0f
+        val eyeR = scores["eyeBlinkLeft"] ?: 0f
         val mouthRaw = scores["jawOpen"] ?: 0f
         
         // 입 벌림 임계값 적용: 작은 값(노이즈)은 0으로 처리

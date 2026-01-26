@@ -146,7 +146,7 @@ public class LAppMinimumModel extends CubismUserModel {
         }
 
         // Physics Setting
-        if (physics != null) {
+        if (physics != null && model != null) {
             physics.evaluate(model, deltaTimeSeconds);
         }
 
