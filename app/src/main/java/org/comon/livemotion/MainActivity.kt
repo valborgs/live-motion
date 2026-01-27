@@ -20,8 +20,11 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
-import org.comon.livemotion.demo.minimum.LAppMinimumDelegate
-import org.comon.livemotion.ui.theme.LiveMotionTheme
+import org.comon.live2d.LAppMinimumDelegate
+import org.comon.navigation.NavKey
+import org.comon.studio.ModelSelectScreen
+import org.comon.studio.StudioScreen
+import org.comon.ui.theme.LiveMotionTheme
 
 class MainActivity : ComponentActivity() {
 

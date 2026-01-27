@@ -45,6 +45,11 @@ android {
 }
 
 dependencies {
+    // 모듈 의존성
+    implementation(project(":core:ui"))
+    implementation(project(":core:navigation"))
+    implementation(project(":core:live2d"))
+    implementation(project(":feature:studio"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -62,16 +67,6 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 
-    implementation(files("libs/Live2DCubismCore.aar"))
-    implementation(project(":live2d:framework"))
-
-    // MediaPipe & CameraX
-    implementation(libs.mediapipe.tasks.vision)
-    implementation(libs.androidx.camera.core)
-    implementation(libs.androidx.camera.camera2)
-    implementation(libs.androidx.camera.lifecycle)
-    implementation(libs.androidx.camera.view)
-    
     // Navigation (Nav2)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.kotlinx.serialization.json)
