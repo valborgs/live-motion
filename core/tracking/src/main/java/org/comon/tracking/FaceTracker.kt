@@ -45,6 +45,10 @@ class FaceTracker(
     private val _isGpuEnabled = MutableStateFlow(false)  // 기본값: CPU
     val isGpuEnabled: StateFlow<Boolean> = _isGpuEnabled
     private var currentDelegate: Delegate = Delegate.CPU
+    
+    // FaceLandmarker 초기화 중 플래그 (재초기화 중 분석 방지)
+    @Volatile
+    private var isInitializing = false
 
     private var faceLandmarker: FaceLandmarker? = null
     private var cameraExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -80,6 +84,9 @@ class FaceTracker(
         
         Log.i(TAG, "🔄 Delegate 전환 요청: ${if (useGpu) "GPU" else "CPU"}")
         
+        // 재초기화 중 분석 방지
+        isInitializing = true
+        
         // 기존 FaceLandmarker 정리
         faceLandmarker?.close()
         faceLandmarker = null
@@ -89,6 +96,7 @@ class FaceTracker(
     }
 
     fun setupFaceLandmarker(useGpu: Boolean = true) {
+        isInitializing = true
         val startTime = System.currentTimeMillis()
         
         // 요청된 delegate 설정
@@ -113,6 +121,7 @@ class FaceTracker(
             
             currentDelegate = requestedDelegate
             _isGpuEnabled.value = (currentDelegate == Delegate.GPU)
+            isInitializing = false
             
             val elapsedTime = System.currentTimeMillis() - startTime
             Log.i(TAG, "✅ FaceLandmarker 초기화 완료 - Delegate: ${if (currentDelegate == Delegate.GPU) "GPU 🚀" else "CPU"}, 소요시간: ${elapsedTime}ms")
@@ -136,10 +145,12 @@ class FaceTracker(
                 
                 currentDelegate = Delegate.CPU
                 _isGpuEnabled.value = false
+                isInitializing = false
                 
                 val elapsedTime = System.currentTimeMillis() - startTime
                 Log.i(TAG, "✅ FaceLandmarker 초기화 완료 - Delegate: CPU (GPU 폴백), 소요시간: ${elapsedTime}ms")
             } else {
+                isInitializing = false
                 throw e
             }
         }
@@ -208,6 +219,12 @@ class FaceTracker(
     }
 
     private fun analyzeImage(imageProxy: ImageProxy) {
+        // 초기화 중이거나 FaceLandmarker가 없으면 프레임 건너뛰기
+        if (isInitializing || faceLandmarker == null) {
+            imageProxy.close()
+            return
+        }
+        
         val bitmap = imageProxy.toBitmap()
         val mpImage = BitmapImageBuilder(bitmap).build()
         
@@ -215,8 +232,12 @@ class FaceTracker(
         val imageProcessingOptions = ImageProcessingOptions.builder()
             .setRotationDegrees(imageProxy.imageInfo.rotationDegrees)
             .build()
-            
-        faceLandmarker?.detectAsync(mpImage, imageProcessingOptions, System.currentTimeMillis())
+        
+        try {
+            faceLandmarker?.detectAsync(mpImage, imageProcessingOptions, System.currentTimeMillis())
+        } catch (e: Exception) {
+            Log.w(TAG, "⚠️ FaceLandmarker 분석 실패 (재초기화 중일 수 있음): ${e.message}")
+        }
         imageProxy.close()
     }
 
