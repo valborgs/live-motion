@@ -140,6 +140,26 @@ public class LAppMinimumLive2DManager {
     }
 
     /**
+     * Start a motion by file name.
+     * @param fileName relative path to motion file
+     */
+    public void startMotion(String fileName) {
+        if (model != null) {
+            model.startMotionFromFile(fileName);
+        }
+    }
+
+    /**
+     * Start an expression by file name.
+     * @param fileName relative path to expression file
+     */
+    public void startExpression(String fileName) {
+        if (model != null) {
+            model.startExpressionFromFile(fileName);
+        }
+    }
+
+    /**
      * 現在のシーンで保持しているモデルを返す
      *
      * @param number モデルリストのインデックス値

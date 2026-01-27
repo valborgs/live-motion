@@ -19,6 +19,7 @@
 9. [렌더링 엔진 생명주기 안정화](#9-렌더링-엔진-생명주기-안정화)
 10. [얼굴 추적 파라미터 정교화 및 명시적 초기화](#10-얼굴-추적-파라미터-정교화-및-명시적-초기화)
 11. [VTube Studio 호환 매핑 및 eyeWide 지원](#11-vtube-studio-호환-매핑-및-eyewide-지원)
+12. [감정(Expressions) 및 모션(Motions) UI 추가](#12-감정expressions-및-모션motions-ui-추가)
 
 ---
 
@@ -362,3 +363,45 @@ params["ParamEyeRSmile"] = smoothed.mouthForm.coerceIn(0f, 1f)
 1. **FaceGeometry 활용**: MediaPipe FaceGeometry를 사용하면 Euler Angles를 직접 얻을 수 있어 더 정확한 회전 계산 가능
 2. **개인별 보정**: 사용자마다 다른 얼굴 비율을 고려한 동적 보정
 3. **배경 합성**: 크로마키 보드 또는 이미지 배경 추가 기능
+
+---
+
+## 12. 감정(Expressions) 및 모션(Motions) UI 추가 (2026-01-27 업데이트)
+
+### 배경
+- 사용자가 버튼 클릭을 통해 모델의 특정 표정이나 동작을 즉시 실행해볼 수 있는 기능 필요
+- 모델 에셋 구조(대소문자 차이 등)에 유연하게 대응해야 함
+
+### 구현 내용
+
+#### 1. 에셋 폴더 자동 스캔 (대소문자 무관)
+모델마다 `expressions` / `Expressions` 등 폴더명이 다를 수 있어, `StudioScreen` 진입 시 `AssetManager.list()`를 통해 실제 폴더명을 동적으로 찾도록 구현:
+
+```kotlin
+private fun findAssetFolder(assetManager: AssetManager, modelId: String, targetFolder: String): String? {
+    return try {
+        // 대소문자 구분 없이 "expressions" 또는 "motions" 폴더가 있는지 확인하고 실제 이름 반환
+        val files = assetManager.list(modelId) ?: return null
+        files.firstOrNull { it.equals(targetFolder, ignoreCase = true) }
+    } catch (e: IOException) {
+        null
+    }
+}
+```
+
+#### 2. 파일 직접 실행 지원
+기존 `LAppMinimumModel`은 `model3.json`에 정의된 모션 그룹만 실행 가능했으나, 파일 경로를 통해 임의의 모션/표정 파일을 로드하고 실행하는 메서드를 추가:
+
+- `startMotionFromFile(String fileName)`: `.motion3.json` 파일을 직접 로드하여 실행
+- `startExpressionFromFile(String fileName)`: `.exp3.json` 파일을 직접 로드하여 실행
+
+#### 3. UI 구성
+- **상단 버튼 바**: 해당 모델에 `expressions` 또는 `motions` 폴더가 존재할 경우에만 "감정", "모션" 버튼 표시
+- **파일 목록 다이얼로그**: 버튼 클릭 시 폴더 내의 파일들을 리스트로 표시
+- **실행**: 리스트 아이템 선택 시 `LAppMinimumLive2DManager`를 통해 즉시 해당 파일 재생
+
+### 관련 파일
+- `StudioScreen.kt`: 에셋 스캔 및 버튼/다이얼로그 UI
+- `LAppMinimumModel.java`: 파일 경로 기반 모션/표정 로드 및 재생 로직
+- `LAppMinimumLive2DManager.java`: UI와 Model 간 브리지 메서드 (`startMotion`, `startExpression`)
+

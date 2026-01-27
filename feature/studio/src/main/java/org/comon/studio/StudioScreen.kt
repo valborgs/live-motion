@@ -14,6 +14,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.window.Dialog
+import org.comon.live2d.LAppMinimumLive2DManager
+import android.content.res.AssetManager
+import java.io.IOException
 import org.comon.domain.model.FacePose
 import org.comon.live2d.Live2DScreen
 import org.comon.tracking.FaceToLive2DMapper
@@ -47,6 +51,26 @@ fun StudioScreen(
     var isZoomEnabled by remember { mutableStateOf(false) }
     var isMoveEnabled by remember { mutableStateOf(false) }
     var isPreviewVisible by remember { mutableStateOf(true) }
+
+    // Expressions & Motions State
+    var expressionsFolder by remember { mutableStateOf<String?>(null) }
+    var motionsFolder by remember { mutableStateOf<String?>(null) }
+    var expressionFiles by remember { mutableStateOf<List<String>>(emptyList()) }
+    var motionFiles by remember { mutableStateOf<List<String>>(emptyList()) }
+    var showExpressionDialog by remember { mutableStateOf(false) }
+    var showMotionDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(modelId) {
+        expressionsFolder = findAssetFolder(context.assets, modelId, "expressions")
+        if (expressionsFolder != null) {
+            expressionFiles = context.assets.list("$modelId/$expressionsFolder")?.toList() ?: emptyList()
+        }
+
+        motionsFolder = findAssetFolder(context.assets, modelId, "motions")
+        if (motionsFolder != null) {
+            motionFiles = context.assets.list("$modelId/$motionsFolder")?.toList() ?: emptyList()
+        }
+    }
     
     val faceParams = remember(facePose, landmarks) {
         if (landmarks.isEmpty()) {
@@ -147,6 +171,57 @@ fun StudioScreen(
             Text("⬅️ 뒤로")
         }
 
+        // Top Control Bar (Expressions & Motions)
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 48.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (expressionsFolder != null) {
+                Button(
+                    onClick = { showExpressionDialog = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Black.copy(alpha = 0.6f))
+                ) {
+                    Text("감정")
+                }
+            }
+            if (motionsFolder != null) {
+                Button(
+                    onClick = { showMotionDialog = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Black.copy(alpha = 0.6f))
+                ) {
+                    Text("모션")
+                }
+            }
+        }
+
+        // Expression Dialog
+        if (showExpressionDialog) {
+            FileListDialog(
+                title = "감정 목록",
+                files = expressionFiles,
+                onDismiss = { showExpressionDialog = false },
+                onFileSelected = { fileName ->
+                    LAppMinimumLive2DManager.getInstance().startExpression("$expressionsFolder/$fileName")
+                    showExpressionDialog = false
+                }
+            )
+        }
+
+        // Motion Dialog
+        if (showMotionDialog) {
+            FileListDialog(
+                title = "모션 목록",
+                files = motionFiles,
+                onDismiss = { showMotionDialog = false },
+                onFileSelected = { fileName ->
+                    LAppMinimumLive2DManager.getInstance().startMotion("$motionsFolder/$fileName")
+                    showMotionDialog = false
+                }
+            )
+        }
+
         Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
@@ -189,5 +264,66 @@ fun ControlToggle(
             onCheckedChange = onCheckedChange,
             modifier = Modifier.height(24.dp)
         )
+    }
+}
+
+@Composable
+fun FileListDialog(
+    title: String,
+    files: List<String>,
+    onDismiss: () -> Unit,
+    onFileSelected: (String) -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 400.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Color.Black,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                
+                androidx.compose.foundation.lazy.LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(files.size) { index ->
+                        val file = files[index]
+                        Button(
+                            onClick = { onFileSelected(file) },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.LightGray)
+                        ) {
+                            Text(file, color = Color.Black)
+                        }
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier.align(Alignment.End),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Gray)
+                ) {
+                    Text("닫기")
+                }
+            }
+        }
+    }
+}
+
+private fun findAssetFolder(assetManager: AssetManager, modelId: String, targetFolder: String): String? {
+    return try {
+        val files = assetManager.list(modelId) ?: return null
+        files.firstOrNull { it.equals(targetFolder, ignoreCase = true) }
+    } catch (e: IOException) {
+        null
     }
 }

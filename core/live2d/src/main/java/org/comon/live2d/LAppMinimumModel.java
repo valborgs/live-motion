@@ -242,6 +242,73 @@ public class LAppMinimumModel extends CubismUserModel {
         return motionManager.startMotionPriority(motion, priority);
     }
 
+    /**
+     * Start a motion via a file path (relative to the model directory).
+     *
+     * @param fileName The name of the motion file (e.g., "motions/my_motion.motion3.json")
+     * @return The motion ID, or -1 on failure.
+     */
+    public int startMotionFromFile(String fileName) {
+        if (fileName == null || fileName.isEmpty()) {
+            return -1;
+        }
+
+        String path = modelHomeDirectory + fileName;
+        if (LAppDefine.DEBUG_LOG_ENABLE) {
+            CubismFramework.coreLogFunction("[APP] startMotionFromFile: " + path);
+        }
+
+        byte[] buffer = LAppMinimumPal.loadFileAsBytes(path);
+        if (buffer == null) {
+             CubismFramework.coreLogFunction("[APP] Failed to load motion file: " + path);
+             return -1;
+        }
+
+        CubismMotion motion = loadMotion(buffer);
+        if (motion == null) {
+            return -1;
+        }
+        
+        // Use default fade in/out if available, or set generic defaults
+        motion.setFadeInTime(1.0f);
+        motion.setFadeOutTime(1.0f);
+
+        return motionManager.startMotionPriority(motion, LAppDefine.Priority.FORCE.getPriority());
+    }
+
+    /**
+     * Start an expression via a file path (relative to the model directory).
+     *
+     * @param fileName The name of the expression file (e.g., "expressions/my_expression.exp3.json")
+     * @return The motion ID, or -1 on failure.
+     */
+    public int startExpressionFromFile(String fileName) {
+        if (fileName == null || fileName.isEmpty()) {
+            return -1;
+        }
+        
+        String path = modelHomeDirectory + fileName;
+        if (LAppDefine.DEBUG_LOG_ENABLE) {
+            CubismFramework.coreLogFunction("[APP] startExpressionFromFile: " + path);
+        }
+        
+        byte[] buffer = LAppMinimumPal.loadFileAsBytes(path);
+         if (buffer == null) {
+             CubismFramework.coreLogFunction("[APP] Failed to load expression file: " + path);
+             return -1;
+        }
+
+        CubismExpressionMotion motion = loadExpression(buffer);
+        if (motion == null) {
+             return -1;
+        }
+
+        if (expressionManager != null) {
+            return expressionManager.startMotionPriority(motion, LAppDefine.Priority.FORCE.getPriority());
+        }
+        return -1;
+    }
+
     public void draw(CubismMatrix44 matrix) {
         if (model == null) {
             LAppMinimumDelegate.getInstance().getActivity().finish();
