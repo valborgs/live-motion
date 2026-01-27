@@ -407,6 +407,9 @@ class FaceTracker(
         // ===========================================
         val eyeL = scores["eyeBlinkRight"] ?: 0f
         val eyeR = scores["eyeBlinkLeft"] ?: 0f
+        val eyeWideL = scores["eyeWideRight"] ?: 0f
+        val eyeWideR = scores["eyeWideLeft"] ?: 0f
+        
         val mouthRaw = scores["jawOpen"] ?: 0f
         
         // 입 벌림 임계값 적용: 작은 값(노이즈)은 0으로 처리
@@ -419,12 +422,17 @@ class FaceTracker(
         val mouthSmileR = scores["mouthSmileRight"] ?: 0f
         val mouthForm = (mouthSmileL + mouthSmileR) / 2f
 
+        // 눈 뜬 정도 = (1 - 감은 정도) + (크게 뜬 정도 * 가중치)
+        // eyeWide는 보통 0~1 사이 값이지만 잘 안 나오는 경향이 있어 가중치를 줌
+        val openL = (1f - eyeL) + (eyeWideL * 0.8f)
+        val openR = (1f - eyeR) + (eyeWideR * 0.8f)
+
         return FacePose(
             yaw = yawNorm.coerceIn(-1.5f, 1.5f),
             pitch = pitchNorm.coerceIn(-1.5f, 1.5f),
             roll = rollNorm.coerceIn(-1.5f, 1.5f),
-            eyeLOpen = 1f - eyeL,
-            eyeROpen = 1f - eyeR,
+            eyeLOpen = openL,
+            eyeROpen = openR,
             mouthOpen = mouth,
             mouthForm = mouthForm.coerceIn(0f, 1f),
             eyeBallX = eyeBallX,

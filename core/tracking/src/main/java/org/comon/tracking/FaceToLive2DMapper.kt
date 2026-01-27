@@ -65,14 +65,19 @@ class FaceToLive2DMapper {
         
         // ===========================================
         // 눈 파라미터
-        // ===========================================
-        params["ParamEyeLOpen"] = smoothed.eyeLOpen.coerceIn(0f, 1f)
-        params["ParamEyeROpen"] = smoothed.eyeROpen.coerceIn(0f, 1f)
+        // eyeWide blendshape 적용으로 1.0 이상 값이 들어올 수 있음 -> 최대 2.0까지 허용
+        params["ParamEyeLOpen"] = smoothed.eyeLOpen.coerceIn(0f, 2f)
+        params["ParamEyeROpen"] = smoothed.eyeROpen.coerceIn(0f, 2f)
+        
+        // 미소 시 눈웃음 연동 (VTube Studio 설정 참고)
+        params["ParamEyeLSmile"] = smoothed.mouthForm.coerceIn(0f, 1f)
+        params["ParamEyeRSmile"] = smoothed.mouthForm.coerceIn(0f, 1f)
         
         // ===========================================
         // 입 파라미터
         // ===========================================
-        params["ParamMouthOpenY"] = smoothed.mouthOpen.coerceIn(0f, 1f)
+        // VTube Studio 참고: 출력 범위 확장 (0~2.1)으로 더 역동적인 입 표현
+        params["ParamMouthOpenY"] = (smoothed.mouthOpen * 2.1f).coerceIn(0f, 2.1f)
         // 입 모양 (미소) - 모델이 지원하지 않으면 무시됨
         params["ParamMouthForm"] = smoothed.mouthForm.coerceIn(0f, 1f)
 

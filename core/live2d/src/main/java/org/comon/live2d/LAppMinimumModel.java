@@ -170,8 +170,18 @@ public class LAppMinimumModel extends CubismUserModel {
 
         synchronized (faceParameters) {
             for (Map.Entry<String, Float> entry : params.entrySet()) {
-                CubismId id = CubismFramework.getIdManager().getId(entry.getKey());
-                faceParameters.put(id, entry.getValue());
+                String key = entry.getKey();
+                Float value = entry.getValue();
+                
+                // "LipSync" 키는 모델의 LipSync 파라미터 배열에 적용
+                if (key.equals("LipSync")) {
+                    for (CubismId lipSyncId : lipSyncIds) {
+                        faceParameters.put(lipSyncId, value);
+                    }
+                } else {
+                    CubismId id = CubismFramework.getIdManager().getId(key);
+                    faceParameters.put(id, value);
+                }
             }
         }
     }
@@ -370,6 +380,20 @@ public class LAppMinimumModel extends CubismUserModel {
         }
 
         model.saveParameters();
+
+        // Load LipSync parameters from model setting
+        {
+            int lipSyncCount = this.modelSetting.getLipSyncParameterCount();
+            for (int i = 0; i < lipSyncCount; i++) {
+                CubismId lipSyncId = this.modelSetting.getLipSyncParameterId(i);
+                if (lipSyncId != null) {
+                    lipSyncIds.add(lipSyncId);
+                    if (LAppDefine.DEBUG_LOG_ENABLE) {
+                        CubismFramework.coreLogFunction("[APP] Loaded LipSync parameter: " + lipSyncId.getString());
+                    }
+                }
+            }
+        }
 
         // Load motions
         for (int i = 0; i < modelSetting.getMotionGroupCount(); i++) {

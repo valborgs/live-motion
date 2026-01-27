@@ -53,7 +53,7 @@ fun StudioScreen(
             mapper.reset()
             mapOf(
                 "ParamAngleX" to 0f, "ParamAngleY" to 0f, "ParamAngleZ" to 0f,
-                "ParamEyeLOpen" to 1f, "ParamEyeROpen" to 1f, "ParamMouthOpenY" to 0f,
+                "ParamEyeLOpen" to 1f, "ParamEyeROpen" to 1f, "LipSync" to 0f,
                 "ParamMouthForm" to 0f, "ParamBodyAngleX" to 0f, "ParamBodyAngleY" to 0f,
                 "ParamBodyAngleZ" to 0f, "ParamEyeBallX" to 0f, "ParamEyeBallY" to 0f
             )
