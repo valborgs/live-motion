@@ -161,6 +161,13 @@ class FaceTracker(
     private var preview: Preview? = null
     private var imageAnalyzer: ImageAnalysis? = null
     private var currentPreviewSurface: Preview.SurfaceProvider? = null
+    
+    // 카메라 준비 전에 attachPreview()가 호출된 경우 대기할 SurfaceProvider
+    private var pendingSurfaceProvider: Preview.SurfaceProvider? = null
+    
+    // 카메라 준비 상태
+    @Volatile
+    private var isCameraReady = false
 
     /**
      * 카메라 시작 (프리뷰 없이 얼굴 추적만)
@@ -193,7 +200,18 @@ class FaceTracker(
                 cameraProvider?.bindToLifecycle(
                     lifecycleOwner, cameraSelector, preview, imageAnalyzer
                 )
+                
+                isCameraReady = true
                 Log.d(TAG, "📷 카메라 시작 완료")
+                
+                // 카메라 준비 전에 attachPreview()가 호출되었다면 지금 연결
+                pendingSurfaceProvider?.let { surfaceProvider ->
+                    Log.d(TAG, "📷 대기 중이던 프리뷰 연결 중...")
+                    preview?.surfaceProvider = surfaceProvider
+                    currentPreviewSurface = surfaceProvider
+                    pendingSurfaceProvider = null
+                    Log.d(TAG, "📷 대기 중이던 프리뷰 연결 완료")
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Use case binding failed", e)
             }
@@ -204,6 +222,13 @@ class FaceTracker(
      * 프리뷰 연결 (카메라가 이미 시작된 상태에서 호출)
      */
     fun attachPreview(surfaceProvider: Preview.SurfaceProvider) {
+        if (!isCameraReady || preview == null) {
+            // 카메라가 아직 준비되지 않았으면 대기열에 저장
+            Log.d(TAG, "📷 카메라 준비 중... 프리뷰 연결 대기")
+            pendingSurfaceProvider = surfaceProvider
+            return
+        }
+        
         currentPreviewSurface = surfaceProvider
         preview?.surfaceProvider = surfaceProvider
         Log.d(TAG, "📷 프리뷰 연결됨")
@@ -213,6 +238,7 @@ class FaceTracker(
      * 프리뷰 해제 (카메라는 계속 실행)
      */
     fun detachPreview() {
+        pendingSurfaceProvider = null  // 대기 중인 요청도 취소
         preview?.surfaceProvider = null
         currentPreviewSurface = null
         Log.d(TAG, "📷 프리뷰 해제됨")
