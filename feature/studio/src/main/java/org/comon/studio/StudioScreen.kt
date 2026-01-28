@@ -1,12 +1,16 @@
 package org.comon.studio
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
@@ -23,6 +27,17 @@ import org.comon.live2d.Live2DScreen
 import org.comon.tracking.FaceToLive2DMapper
 import org.comon.tracking.FaceTracker
 
+// 디자인 컬러 정의
+private val ControlPanelBackground = Color(0xFF1A1A2E)
+private val ButtonDefaultColor = Color(0xFF2D2D44)
+private val ButtonHoverColor = Color(0xFF3D3D5C)
+private val AccentBlue = Color(0xFF4A9FF5)
+private val AccentPurple = Color(0xFF7C4DFF)
+private val AccentCyan = Color(0xFF00BCD4)
+private val AccentMagenta = Color(0xFFE040FB)
+private val TextPrimary = Color(0xFFFFFFFF)
+private val TextSecondary = Color(0xFFB0B0C3)
+
 @Composable
 fun StudioScreen(
     modelId: String,
@@ -31,11 +46,8 @@ fun StudioScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     
-    // 모델 로딩 로직은 이제 Live2DScreen 내부에서 처리됨 (GLThread 안정성 위해)
-
     val faceTracker = remember { FaceTracker(context, lifecycleOwner) }
     
-    // FaceTracker 생명주기 관리
     DisposableEffect(faceTracker) {
         onDispose {
             faceTracker.stop()
@@ -52,7 +64,6 @@ fun StudioScreen(
     var isMoveEnabled by remember { mutableStateOf(false) }
     var isPreviewVisible by remember { mutableStateOf(true) }
 
-    // Expressions & Motions State
     var expressionsFolder by remember { mutableStateOf<String?>(null) }
     var motionsFolder by remember { mutableStateOf<String?>(null) }
     var expressionFiles by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -86,184 +97,280 @@ fun StudioScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        Live2DScreen(
-            modifier = Modifier.fillMaxSize(),
-            modelId = modelId,
-            faceParams = faceParams,
-            isZoomEnabled = isZoomEnabled,
-            isMoveEnabled = isMoveEnabled
-        )
+    LaunchedEffect(Unit) {
+        faceTracker.setupFaceLandmarker(useGpu = false)
+        faceTracker.startCamera()
+    }
 
-        // LaunchedEffect 내에서 카메라와 랜드마커를 순차적으로 초기화
-        LaunchedEffect(Unit) {
-            faceTracker.setupFaceLandmarker(useGpu = false)
-            faceTracker.startCamera()
-        }
-
-        if (isPreviewVisible) {
-            AndroidView(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(bottom = 48.dp, end = 24.dp)
-                    .size(120.dp, 160.dp),
-                factory = { ctx ->
-                    androidx.camera.view.PreviewView(ctx).apply {
-                        scaleType = androidx.camera.view.PreviewView.ScaleType.FILL_CENTER
-                        faceTracker.attachPreview(surfaceProvider)
-                    }
-                },
-                onRelease = {
-                    faceTracker.detachPreview()
-                }
+    Column(modifier = Modifier.fillMaxSize()) {
+        // 상단 모델 뷰 영역 (8)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(0.8f)
+        ) {
+            Live2DScreen(
+                modifier = Modifier.fillMaxSize(),
+                modelId = modelId,
+                faceParams = faceParams,
+                isZoomEnabled = isZoomEnabled,
+                isMoveEnabled = isMoveEnabled
             )
 
-            androidx.compose.foundation.Canvas(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(bottom = 48.dp, end = 24.dp)
-                    .size(120.dp, 160.dp)
-            ) {
-                val canvasWidth = size.width
-                val canvasHeight = size.height
-                
-                landmarks.forEach { landmark ->
-                    val x = (1.0f - landmark.x()) * canvasWidth
-                    val y = landmark.y() * canvasHeight
-                    drawCircle(
-                        color = Color.Cyan,
-                        radius = 2f,
-                        center = androidx.compose.ui.geometry.Offset(x, y),
-                        alpha = 0.8f
-                    )
+            // 캘리브레이션 오버레이
+            if (isCalibrating) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.5f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = Color.White)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            "얼굴 보정 중입니다...\n5초 동안 정면을 응시해 주세요.",
+                            color = Color.White,
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
                 }
             }
         }
 
-        if (isCalibrating) {
-            Box(
+        // 하단 설정 영역 (2)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(0.2f)
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            ControlPanelBackground.copy(alpha = 0.95f),
+                            ControlPanelBackground
+                        )
+                    )
+                )
+        ) {
+            Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.5f)),
-                contentAlignment = Alignment.Center
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = Color.White)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        "얼굴 보정 중입니다...\n5초 동안 정면을 응시해 주세요.",
-                        color = Color.White,
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                }
-            }
-        }
-        
-        // 뒤로가기 버튼 (상단 왼쪽)
-        Button(
-            onClick = onBack,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(top = 48.dp, start = 16.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.Black.copy(alpha = 0.6f))
-        ) {
-            Text("⬅️ 뒤로")
-        }
-
-        // Top Control Bar (Expressions & Motions)
-        Row(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 48.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            if (expressionsFolder != null) {
-                Button(
-                    onClick = { showExpressionDialog = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Black.copy(alpha = 0.6f))
+                // 버튼 레이아웃 영역 (프리뷰 제외 남은 공간)
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)
                 ) {
-                    Text("감정")
+                    // 1열: 뒤로가기, 감정, 모션 버튼
+                    Row(
+                        modifier = Modifier
+                            .horizontalScroll(rememberScrollState())
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        StudioIconButton(
+                            emoji = "⬅️",
+                            text = "뒤로",
+                            onClick = onBack
+                        )
+                        
+                        if (expressionsFolder != null) {
+                            StudioIconButton(
+                                emoji = "😊",
+                                text = "감정",
+                                onClick = { showExpressionDialog = true },
+                                accentColor = AccentPurple
+                            )
+                        }
+                        
+                        if (motionsFolder != null) {
+                            StudioIconButton(
+                                emoji = "🎬",
+                                text = "모션",
+                                onClick = { showMotionDialog = true },
+                                accentColor = AccentBlue
+                            )
+                        }
+                    }
+
+                    // 2열: 토글 버튼들
+                    Row(
+                        modifier = Modifier
+                            .horizontalScroll(rememberScrollState())
+                            .fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        StudioToggleButton(
+                            text = if (isGpuEnabled) "GPU" else "CPU",
+                            emoji = if (isGpuEnabled) "🚀" else "💻",
+                            checked = isGpuEnabled,
+                            onCheckedChange = { faceTracker.setGpuEnabled(it) },
+                            activeColor = AccentBlue
+                        )
+                        StudioToggleButton(
+                            text = "확대",
+                            emoji = "🔍",
+                            checked = isZoomEnabled,
+                            onCheckedChange = { isZoomEnabled = it },
+                            activeColor = AccentPurple
+                        )
+                        StudioToggleButton(
+                            text = "이동",
+                            emoji = "↕️",
+                            checked = isMoveEnabled,
+                            onCheckedChange = { isMoveEnabled = it },
+                            activeColor = AccentMagenta
+                        )
+                        StudioToggleButton(
+                            text = "프리뷰",
+                            emoji = "📷",
+                            checked = isPreviewVisible,
+                            onCheckedChange = { isPreviewVisible = it },
+                            activeColor = AccentCyan
+                        )
+                    }
+                }
+
+                // 프리뷰 영역 (고정 크기)
+                if (isPreviewVisible) {
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(100.dp, 130.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                    ) {
+                        AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory = { ctx ->
+                                androidx.camera.view.PreviewView(ctx).apply {
+                                    scaleType = androidx.camera.view.PreviewView.ScaleType.FILL_CENTER
+                                    faceTracker.attachPreview(surfaceProvider)
+                                }
+                            },
+                            onRelease = {
+                                faceTracker.detachPreview()
+                            }
+                        )
+
+                        androidx.compose.foundation.Canvas(
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            val canvasWidth = size.width
+                            val canvasHeight = size.height
+                            
+                            landmarks.forEach { landmark ->
+                                val x = (1.0f - landmark.x()) * canvasWidth
+                                val y = landmark.y() * canvasHeight
+                                drawCircle(
+                                    color = Color.Cyan,
+                                    radius = 2f,
+                                    center = androidx.compose.ui.geometry.Offset(x, y),
+                                    alpha = 0.8f
+                                )
+                            }
+                        }
+                    }
                 }
             }
-            if (motionsFolder != null) {
-                Button(
-                    onClick = { showMotionDialog = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Black.copy(alpha = 0.6f))
-                ) {
-                    Text("모션")
-                }
+        }
+    }
+
+    // Expression Dialog
+    if (showExpressionDialog) {
+        FileListDialog(
+            title = "감정 목록",
+            files = expressionFiles,
+            onDismiss = { showExpressionDialog = false },
+            onFileSelected = { fileName ->
+                LAppMinimumLive2DManager.getInstance().startExpression("$expressionsFolder/$fileName")
+                showExpressionDialog = false
             }
-        }
+        )
+    }
 
-        // Expression Dialog
-        if (showExpressionDialog) {
-            FileListDialog(
-                title = "감정 목록",
-                files = expressionFiles,
-                onDismiss = { showExpressionDialog = false },
-                onFileSelected = { fileName ->
-                    LAppMinimumLive2DManager.getInstance().startExpression("$expressionsFolder/$fileName")
-                    showExpressionDialog = false
-                }
-            )
-        }
-
-        // Motion Dialog
-        if (showMotionDialog) {
-            FileListDialog(
-                title = "모션 목록",
-                files = motionFiles,
-                onDismiss = { showMotionDialog = false },
-                onFileSelected = { fileName ->
-                    LAppMinimumLive2DManager.getInstance().startMotion("$motionsFolder/$fileName")
-                    showMotionDialog = false
-                }
-            )
-        }
-
-        Column(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 48.dp, end = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // 구 UI 요소들 (토글 등)
-            ControlToggle(text = if (isGpuEnabled) "GPU 🚀" else "CPU", checked = isGpuEnabled, onCheckedChange = { faceTracker.setGpuEnabled(it) })
-            ControlToggle(text = "🔍 확대", checked = isZoomEnabled, onCheckedChange = { isZoomEnabled = it }, activeColor = Color.Blue)
-            ControlToggle(text = "↕️ 이동", checked = isMoveEnabled, onCheckedChange = { isMoveEnabled = it }, activeColor = Color.Magenta)
-            ControlToggle(text = "📷 프리뷰", checked = isPreviewVisible, onCheckedChange = { isPreviewVisible = it }, activeColor = Color.Cyan)
-        }
+    // Motion Dialog
+    if (showMotionDialog) {
+        FileListDialog(
+            title = "모션 목록",
+            files = motionFiles,
+            onDismiss = { showMotionDialog = false },
+            onFileSelected = { fileName ->
+                LAppMinimumLive2DManager.getInstance().startMotion("$motionsFolder/$fileName")
+                showMotionDialog = false
+            }
+        )
     }
 }
 
 @Composable
-fun ControlToggle(
+private fun StudioIconButton(
+    emoji: String,
     text: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    activeColor: Color = Color.Transparent
+    onClick: () -> Unit,
+    accentColor: Color = ButtonDefaultColor
 ) {
-    Row(
-        modifier = Modifier
-            .background(
-                color = if (checked && activeColor != Color.Transparent) activeColor.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.6f),
-                shape = RoundedCornerShape(8.dp)
-            )
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
+    Button(
+        onClick = onClick,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = accentColor.copy(alpha = 0.8f)
+        ),
+        shape = RoundedCornerShape(12.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+        elevation = ButtonDefaults.buttonElevation(
+            defaultElevation = 4.dp,
+            pressedElevation = 2.dp
+        )
     ) {
         Text(
+            text = emoji,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
             text = text,
-            color = Color.White,
-            style = MaterialTheme.typography.labelSmall
+            color = TextPrimary,
+            style = MaterialTheme.typography.labelMedium
         )
-        Spacer(modifier = Modifier.width(4.dp))
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            modifier = Modifier.height(24.dp)
-        )
+    }
+}
+
+@Composable
+private fun StudioToggleButton(
+    text: String,
+    emoji: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    activeColor: Color
+) {
+    val backgroundColor = if (checked) activeColor.copy(alpha = 0.85f) else ButtonDefaultColor
+    
+    Surface(
+        onClick = { onCheckedChange(!checked) },
+        shape = RoundedCornerShape(12.dp),
+        color = backgroundColor,
+        shadowElevation = if (checked) 6.dp else 2.dp,
+        modifier = Modifier.height(44.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = emoji,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                text = text,
+                color = if (checked) TextPrimary else TextSecondary,
+                style = MaterialTheme.typography.labelMedium
+            )
+        }
     }
 }
 
@@ -280,13 +387,13 @@ fun FileListDialog(
                 .fillMaxWidth()
                 .heightIn(max = 400.dp),
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White)
+            colors = CardDefaults.cardColors(containerColor = ControlPanelBackground)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleLarge,
-                    color = Color.Black,
+                    color = TextPrimary,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
                 
@@ -298,9 +405,10 @@ fun FileListDialog(
                         Button(
                             onClick = { onFileSelected(file) },
                             modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.LightGray)
+                            colors = ButtonDefaults.buttonColors(containerColor = ButtonDefaultColor),
+                            shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text(file, color = Color.Black)
+                            Text(file, color = TextPrimary)
                         }
                     }
                 }
@@ -310,9 +418,10 @@ fun FileListDialog(
                 Button(
                     onClick = onDismiss,
                     modifier = Modifier.align(Alignment.End),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Gray)
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
+                    shape = RoundedCornerShape(8.dp)
                 ) {
-                    Text("닫기")
+                    Text("닫기", color = TextPrimary)
                 }
             }
         }
