@@ -22,6 +22,7 @@
 12. [감정(Expressions) 및 모션(Motions) UI 추가](#12-감정expressions-및-모션motions-ui-추가)
 13. [ViewModel 도입 및 상태 관리 개선](#13-viewmodel-도입-및-상태-관리-개선-2026-01-28-업데이트)
 14. [에러 처리 시스템 구축](#14-에러-처리-시스템-구축-2026-01-28-업데이트)
+15. [수동 의존성 주입(Manual DI) 리팩토링](#15-수동-의존성-주입manual-di-리팩토링-2026-01-28-업데이트)
 
 ---
 
@@ -599,4 +600,159 @@ if (!cameraProvider!!.hasCamera(cameraSelector)) {
 | `ModelSelectScreen.kt` | 모델 로딩 에러 스낵바/다이얼로그 |
 | `MainActivity.kt` | `CameraPermissionScreen`, 권한 상태 관리 |
 | `Live2DScreen.kt` | `onModelLoadError` 콜백 추가 |
+
+---
+
+## 15. 수동 의존성 주입(Manual DI) 리팩토링 (2026-01-28 업데이트)
+
+### 배경
+- `StudioViewModel`에서 `Application`/`Context`를 직접 참조하여 메모리 누수 경고 및 테스트 어려움 발생
+- Android 프레임워크에 대한 강한 결합으로 인해 단위 테스트 작성이 어려움
+- Hilt 등 DI 프레임워크 없이 수동 의존성 주입 패턴 적용 필요
+
+### 구현 내용
+
+#### 1. DI 인프라 구축
+
+**core:common 모듈**에 추상화 계층 생성:
+
+```kotlin
+// AppContainer 인터페이스 (core:common)
+interface AppContainer {
+    val modelAssetReader: ModelAssetReader
+    val faceTrackerFactory: FaceTrackerFactory
+}
+
+// CompositionLocal 정의 (core:common)
+val LocalAppContainer = staticCompositionLocalOf<AppContainer> {
+    error("AppContainer has not been provided")
+}
+```
+
+**app 모듈**에 구현체 생성:
+
+```kotlin
+// AppContainerImpl (app)
+class AppContainerImpl(application: Application) : AppContainer {
+    override val faceTrackerFactory by lazy { FaceTrackerFactory(application) }
+    override val modelAssetReader by lazy { ModelAssetReader(application.assets) }
+}
+
+// 커스텀 Application (app)
+class LiveMotionApp : Application() {
+    lateinit var container: AppContainerImpl
+    override fun onCreate() {
+        super.onCreate()
+        container = AppContainerImpl(this)
+    }
+}
+```
+
+#### 2. Factory 패턴 적용
+
+**FaceTrackerFactory**: ViewModel이 Context 없이 FaceTracker를 생성할 수 있도록 함:
+
+```kotlin
+class FaceTrackerFactory(private val context: Context) {
+    fun create(lifecycleOwner: LifecycleOwner): FaceTracker {
+        return FaceTracker(context, lifecycleOwner)
+    }
+}
+```
+
+**ModelAssetReader**: Asset 접근을 캡슐화:
+
+```kotlin
+class ModelAssetReader(private val assets: AssetManager) {
+    fun findAssetFolder(modelId: String, targetFolder: String): String?
+    fun listFiles(path: String): List<String>
+    fun listLive2DModels(): List<String>
+}
+```
+
+#### 3. ViewModel 리팩토링
+
+기존 `Application` 직접 참조를 Factory 주입으로 변경:
+
+```kotlin
+// 수정 전
+class StudioViewModel(private val application: Application) : ViewModel()
+
+// 수정 후
+class StudioViewModel(
+    private val faceTrackerFactory: FaceTrackerFactory,
+    private val modelAssetReader: ModelAssetReader
+) : ViewModel()
+```
+
+#### 4. Compose에서 DI 사용
+
+**MainActivity**에서 `CompositionLocalProvider`로 컨테이너 제공:
+
+```kotlin
+setContent {
+    val container = (application as LiveMotionApp).container
+    CompositionLocalProvider(LocalAppContainer provides container) {
+        LiveMotionTheme { MainContent() }
+    }
+}
+```
+
+**Screen**에서 `LocalAppContainer.current`로 의존성 획득:
+
+```kotlin
+@Composable
+fun StudioScreen(...) {
+    val container = LocalAppContainer.current
+    val viewModel: StudioViewModel = viewModel(
+        factory = StudioViewModel.Factory(
+            container.faceTrackerFactory,
+            container.modelAssetReader
+        )
+    )
+}
+```
+
+### 모듈 의존성 구조
+
+```mermaid
+graph TD
+    A[app] --> B[core:common]
+    A --> C[core:tracking]
+    A --> D[feature:studio]
+    B --> C
+    D --> B
+    D --> C
+```
+
+순환 의존성을 방지하기 위해:
+- `AppContainer` **인터페이스**는 `core:common`에 정의
+- `AppContainerImpl` **구현체**는 `app`에 위치
+- `feature:studio`는 인터페이스만 참조
+
+### 관련 파일
+
+**신규 생성**
+| 파일 | 위치 | 설명 |
+|------|------|------|
+| `AppContainer.kt` | core:common/di | 의존성 컨테이너 인터페이스 |
+| `LocalAppContainer.kt` | core:common/di | Compose CompositionLocal |
+| `ModelAssetReader.kt` | core:common/asset | Asset 읽기 클래스 |
+| `FaceTrackerFactory.kt` | core:tracking | FaceTracker 생성 Factory |
+| `AppContainerImpl.kt` | app/di | AppContainer 구현체 |
+| `LiveMotionApp.kt` | app | 커스텀 Application |
+
+**수정됨**
+| 파일 | 변경 내용 |
+|------|----------|
+| `StudioViewModel.kt` | Application → Factory 주입 |
+| `StudioScreen.kt` | LocalAppContainer 사용 |
+| `ModelSelectScreen.kt` | LocalAppContainer 사용 |
+| `MainActivity.kt` | CompositionLocalProvider 추가 |
+| `AndroidManifest.xml` | LiveMotionApp 등록 |
+| `libs.versions.toml` | compose-runtime 추가 |
+| `app/build.gradle.kts` | core:common, core:tracking 의존성 추가 |
+| `feature/studio/build.gradle.kts` | core:common 의존성 추가 |
+| `core/common/build.gradle.kts` | core:tracking, compose-runtime 의존성 추가 |
+
 

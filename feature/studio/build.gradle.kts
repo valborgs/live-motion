@@ -42,6 +42,7 @@ android {
 
 dependencies {
     implementation(project(":domain"))
+    implementation(project(":core:common"))
     implementation(project(":core:tracking"))
     implementation(project(":core:live2d"))
     

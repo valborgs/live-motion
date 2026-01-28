@@ -33,6 +33,7 @@ import org.comon.navigation.NavKey
 import org.comon.studio.ModelSelectScreen
 import org.comon.studio.StudioScreen
 import org.comon.ui.theme.LiveMotionTheme
+import org.comon.common.di.LocalAppContainer
 
 class MainActivity : ComponentActivity() {
 
@@ -40,8 +41,11 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            LiveMotionTheme {
-                MainContent()
+            val container = (application as LiveMotionApp).container
+            CompositionLocalProvider(LocalAppContainer provides container) {
+                LiveMotionTheme {
+                    MainContent()
+                }
             }
         }
     }

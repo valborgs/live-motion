@@ -1,7 +1,5 @@
 package org.comon.studio
 
-import android.content.Context
-import android.content.res.AssetManager
 import androidx.camera.core.Preview.SurfaceProvider
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ViewModel
@@ -14,13 +12,15 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.comon.domain.model.FacePose
+import org.comon.common.asset.ModelAssetReader
 import org.comon.tracking.FaceToLive2DMapper
 import org.comon.tracking.FaceTracker
+import org.comon.tracking.FaceTrackerFactory
 import org.comon.tracking.TrackingError
-import java.io.IOException
 
 class StudioViewModel(
-    private val context: Context
+    private val faceTrackerFactory: FaceTrackerFactory,
+    private val modelAssetReader: ModelAssetReader
 ) : ViewModel() {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -82,7 +82,7 @@ class StudioViewModel(
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     fun initialize(lifecycleOwner: LifecycleOwner, modelId: String) {
         if (faceTracker == null) {
-            faceTracker = FaceTracker(context, lifecycleOwner).also { tracker ->
+            faceTracker = faceTrackerFactory.create(lifecycleOwner).also { tracker ->
                 // FaceTracker의 StateFlow를 ViewModel로 전파
                 viewModelScope.launch {
                     tracker.facePose.collect { pose ->
@@ -126,19 +126,17 @@ class StudioViewModel(
     }
 
     private fun loadModelMetadata(modelId: String) {
-        val assets = context.assets
-
-        val expressionsFolder = findAssetFolder(assets, modelId, "expressions")
-        val motionsFolder = findAssetFolder(assets, modelId, "motions")
+        val expressionsFolder = modelAssetReader.findAssetFolder(modelId, "expressions")
+        val motionsFolder = modelAssetReader.findAssetFolder(modelId, "motions")
 
         val expressionFiles = if (expressionsFolder != null) {
-            assets.list("$modelId/$expressionsFolder")?.toList() ?: emptyList()
+            modelAssetReader.listFiles("$modelId/$expressionsFolder")
         } else {
             emptyList()
         }
 
         val motionFiles = if (motionsFolder != null) {
-            assets.list("$modelId/$motionsFolder")?.toList() ?: emptyList()
+            modelAssetReader.listFiles("$modelId/$motionsFolder")
         } else {
             emptyList()
         }
@@ -150,15 +148,6 @@ class StudioViewModel(
                 expressionFiles = expressionFiles,
                 motionFiles = motionFiles
             )
-        }
-    }
-
-    private fun findAssetFolder(assetManager: AssetManager, modelId: String, targetFolder: String): String? {
-        return try {
-            val files = assetManager.list(modelId) ?: return null
-            files.firstOrNull { it.equals(targetFolder, ignoreCase = true) }
-        } catch (_: IOException) {
-            null
         }
     }
 
@@ -247,13 +236,16 @@ class StudioViewModel(
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // Factory (Context 주입)
+    // Factory (의존성 주입)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    class Factory(private val context: Context) : ViewModelProvider.Factory {
+    class Factory(
+        private val faceTrackerFactory: FaceTrackerFactory,
+        private val modelAssetReader: ModelAssetReader
+    ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(StudioViewModel::class.java)) {
-                return StudioViewModel(context.applicationContext) as T
+                return StudioViewModel(faceTrackerFactory, modelAssetReader) as T
             }
             throw IllegalArgumentException("Unknown ViewModel class")
         }

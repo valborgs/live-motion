@@ -420,13 +420,6 @@ class FaceTracker(
         val leftEye = landmarks[33]
         val rightEye = landmarks[263]
 
-        // 눈 사이 거리 (좌우 회전 계산용)
-        val eyeDist = sqrt((rightEye.x() - leftEye.x()).pow(2) + (rightEye.y() - leftEye.y()).pow(2))
-        
-        // 안면 세로 거리 (상하 회전 정규화용: 좌우 회전 시에도 비교적 안정적)
-        val faceHeight = sqrt((chin.x() - nose.x()).pow(2) + (chin.y() - nose.y()).pow(2))
-        val normFactor = 1.0f / (faceHeight.coerceAtLeast(0.05f))
-
         // 1. Yaw (좌우 회전): 정규화된 값 (-1.0 ~ 1.0) 추출
         // 거울 모드: 전면 카메라이므로 방향 반전 (- 부호)
         val yawNorm = -(rightEye.z() - leftEye.z()) * 15f
@@ -551,10 +544,6 @@ class FaceTracker(
         val eyeBallY = -((avgRelY - 0.5f) * 2f).coerceIn(-1f, 1f)
 
         return Pair(eyeBallX, eyeBallY)
-    }
-
-    private fun scoresToOpen(blinkScore: Float?): Float {
-        return blinkScore ?: 0f
     }
 
     fun stop() {

@@ -12,7 +12,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -21,6 +20,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
+import org.comon.common.di.LocalAppContainer
 import org.comon.live2d.LAppMinimumLive2DManager
 import org.comon.live2d.Live2DScreen
 import org.comon.tracking.TrackingError
@@ -40,9 +40,15 @@ fun StudioScreen(
     modelId: String,
     onBack: () -> Unit,
     onError: (String) -> Unit = {},
-    viewModel: StudioViewModel = viewModel(
-        factory = StudioViewModel.Factory(LocalContext.current)
-    )
+    viewModel: StudioViewModel = run {
+        val container = LocalAppContainer.current
+        viewModel(
+            factory = StudioViewModel.Factory(
+                container.faceTrackerFactory,
+                container.modelAssetReader
+            )
+        )
+    }
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val snackbarHostState = remember { SnackbarHostState() }
