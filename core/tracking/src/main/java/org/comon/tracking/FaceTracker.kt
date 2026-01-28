@@ -24,6 +24,15 @@ import kotlin.math.pow
 import kotlin.math.sqrt
 
 /**
+ * 트래킹 에러 타입
+ */
+sealed class TrackingError {
+    data class FaceLandmarkerInitError(val message: String) : TrackingError()
+    data class CameraError(val message: String) : TrackingError()
+    data class MediaPipeRuntimeError(val message: String) : TrackingError()
+}
+
+/**
  * CameraX 프레임을 수신하여 MediaPipe Face Landmarker로 얼굴 데이터를 추출하는 클래스
  */
 class FaceTracker(
@@ -45,6 +54,17 @@ class FaceTracker(
     private val _isGpuEnabled = MutableStateFlow(false)  // 기본값: CPU
     val isGpuEnabled: StateFlow<Boolean> = _isGpuEnabled
     private var currentDelegate: Delegate = Delegate.CPU
+
+    // 에러 상태 Flow
+    private val _error = MutableStateFlow<TrackingError?>(null)
+    val error: StateFlow<TrackingError?> = _error
+
+    /**
+     * 에러 상태 초기화 (에러 확인 후 호출)
+     */
+    fun clearError() {
+        _error.value = null
+    }
     
     // FaceLandmarker 초기화 중 플래그 (재초기화 중 분석 방지)
     @Volatile
@@ -113,45 +133,62 @@ class FaceTracker(
                 .setBaseOptions(baseOptionsBuilder.build())
                 .setRunningMode(RunningMode.LIVE_STREAM)
                 .setResultListener { result, _ -> processResult(result) }
-                .setErrorListener { error -> Log.e(TAG, "MediaPipe Error: ${error.message}") }
+                .setErrorListener { error ->
+                    Log.e(TAG, "MediaPipe Error: ${error.message}")
+                    _error.value = TrackingError.MediaPipeRuntimeError(error.message ?: "Unknown MediaPipe error")
+                }
                 .setNumFaces(1)
                 .setOutputFaceBlendshapes(true) // 눈, 입 벌림 계산에 사용
 
             faceLandmarker = FaceLandmarker.createFromOptions(context, optionsBuilder.build())
-            
+
             currentDelegate = requestedDelegate
             _isGpuEnabled.value = (currentDelegate == Delegate.GPU)
             isInitializing = false
-            
+
             val elapsedTime = System.currentTimeMillis() - startTime
             Log.i(TAG, "✅ FaceLandmarker 초기화 완료 - Delegate: ${if (currentDelegate == Delegate.GPU) "GPU 🚀" else "CPU"}, 소요시간: ${elapsedTime}ms")
         } catch (e: Exception) {
             // GPU로 초기화 실패 시 CPU로 재시도
             if (requestedDelegate == Delegate.GPU) {
                 Log.w(TAG, "⚠️ GPU로 FaceLandmarker 초기화 실패, CPU로 재시도: ${e.message}")
-                val cpuBaseOptions = BaseOptions.builder()
-                    .setDelegate(Delegate.CPU)
-                    .setModelAssetPath("face_landmarker.task")
-                
-                val cpuOptionsBuilder = FaceLandmarker.FaceLandmarkerOptions.builder()
-                    .setBaseOptions(cpuBaseOptions.build())
-                    .setRunningMode(RunningMode.LIVE_STREAM)
-                    .setResultListener { result, _ -> processResult(result) }
-                    .setErrorListener { error -> Log.e(TAG, "MediaPipe Error: ${error.message}") }
-                    .setNumFaces(1)
-                    .setOutputFaceBlendshapes(true)
-                
-                faceLandmarker = FaceLandmarker.createFromOptions(context, cpuOptionsBuilder.build())
-                
-                currentDelegate = Delegate.CPU
-                _isGpuEnabled.value = false
-                isInitializing = false
-                
-                val elapsedTime = System.currentTimeMillis() - startTime
-                Log.i(TAG, "✅ FaceLandmarker 초기화 완료 - Delegate: CPU (GPU 폴백), 소요시간: ${elapsedTime}ms")
+                try {
+                    val cpuBaseOptions = BaseOptions.builder()
+                        .setDelegate(Delegate.CPU)
+                        .setModelAssetPath("face_landmarker.task")
+
+                    val cpuOptionsBuilder = FaceLandmarker.FaceLandmarkerOptions.builder()
+                        .setBaseOptions(cpuBaseOptions.build())
+                        .setRunningMode(RunningMode.LIVE_STREAM)
+                        .setResultListener { result, _ -> processResult(result) }
+                        .setErrorListener { error ->
+                            Log.e(TAG, "MediaPipe Error: ${error.message}")
+                            _error.value = TrackingError.MediaPipeRuntimeError(error.message ?: "Unknown MediaPipe error")
+                        }
+                        .setNumFaces(1)
+                        .setOutputFaceBlendshapes(true)
+
+                    faceLandmarker = FaceLandmarker.createFromOptions(context, cpuOptionsBuilder.build())
+
+                    currentDelegate = Delegate.CPU
+                    _isGpuEnabled.value = false
+                    isInitializing = false
+
+                    val elapsedTime = System.currentTimeMillis() - startTime
+                    Log.i(TAG, "✅ FaceLandmarker 초기화 완료 - Delegate: CPU (GPU 폴백), 소요시간: ${elapsedTime}ms")
+                } catch (cpuException: Exception) {
+                    isInitializing = false
+                    Log.e(TAG, "❌ FaceLandmarker 초기화 완전 실패: ${cpuException.message}")
+                    _error.value = TrackingError.FaceLandmarkerInitError(
+                        "얼굴 인식 초기화 실패: ${cpuException.message ?: "알 수 없는 오류"}"
+                    )
+                }
             } else {
                 isInitializing = false
-                throw e
+                Log.e(TAG, "❌ FaceLandmarker 초기화 실패: ${e.message}")
+                _error.value = TrackingError.FaceLandmarkerInitError(
+                    "얼굴 인식 초기화 실패: ${e.message ?: "알 수 없는 오류"}"
+                )
             }
         }
     }
@@ -176,34 +213,43 @@ class FaceTracker(
     fun startCamera() {
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
-            cameraProvider = cameraProviderFuture.get()
+            try {
+                cameraProvider = cameraProviderFuture.get()
 
-            // 프리뷰 UseCase (초기에는 surfaceProvider 없음)
-            preview = Preview.Builder().build()
+                val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
 
-            // ImageAnalysis UseCase (얼굴 추적용)
-            imageAnalyzer = ImageAnalysis.Builder()
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
-                .build()
-                .also {
-                    it.setAnalyzer(cameraExecutor) { imageProxy ->
-                        analyzeImage(imageProxy)
-                    }
+                // 전면 카메라 존재 여부 확인
+                if (!cameraProvider!!.hasCamera(cameraSelector)) {
+                    Log.e(TAG, "❌ 전면 카메라가 없습니다")
+                    _error.value = TrackingError.CameraError(
+                        "전면 카메라를 찾을 수 없습니다. 이 앱은 전면 카메라가 필요합니다."
+                    )
+                    return@addListener
                 }
 
-            val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
+                // 프리뷰 UseCase (초기에는 surfaceProvider 없음)
+                preview = Preview.Builder().build()
 
-            try {
+                // ImageAnalysis UseCase (얼굴 추적용)
+                imageAnalyzer = ImageAnalysis.Builder()
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+                    .build()
+                    .also {
+                        it.setAnalyzer(cameraExecutor) { imageProxy ->
+                            analyzeImage(imageProxy)
+                        }
+                    }
+
                 cameraProvider?.unbindAll()
                 // 프리뷰와 이미지 분석 모두 바인딩
                 cameraProvider?.bindToLifecycle(
                     lifecycleOwner, cameraSelector, preview, imageAnalyzer
                 )
-                
+
                 isCameraReady = true
                 Log.d(TAG, "📷 카메라 시작 완료")
-                
+
                 // 카메라 준비 전에 attachPreview()가 호출되었다면 지금 연결
                 pendingSurfaceProvider?.let { surfaceProvider ->
                     Log.d(TAG, "📷 대기 중이던 프리뷰 연결 중...")
@@ -213,7 +259,10 @@ class FaceTracker(
                     Log.d(TAG, "📷 대기 중이던 프리뷰 연결 완료")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Use case binding failed", e)
+                Log.e(TAG, "카메라 시작 실패", e)
+                _error.value = TrackingError.CameraError(
+                    "카메라 시작 실패: ${e.message ?: "알 수 없는 오류"}"
+                )
             }
         }, ContextCompat.getMainExecutor(context))
     }

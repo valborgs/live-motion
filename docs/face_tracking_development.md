@@ -20,6 +20,8 @@
 10. [얼굴 추적 파라미터 정교화 및 명시적 초기화](#10-얼굴-추적-파라미터-정교화-및-명시적-초기화)
 11. [VTube Studio 호환 매핑 및 eyeWide 지원](#11-vtube-studio-호환-매핑-및-eyewide-지원)
 12. [감정(Expressions) 및 모션(Motions) UI 추가](#12-감정expressions-및-모션motions-ui-추가)
+13. [ViewModel 도입 및 상태 관리 개선](#13-viewmodel-도입-및-상태-관리-개선-2026-01-28-업데이트)
+14. [에러 처리 시스템 구축](#14-에러-처리-시스템-구축-2026-01-28-업데이트)
 
 ---
 
@@ -404,4 +406,197 @@ private fun findAssetFolder(assetManager: AssetManager, modelId: String, targetF
 - `StudioScreen.kt`: 에셋 스캔 및 버튼/다이얼로그 UI
 - `LAppMinimumModel.java`: 파일 경로 기반 모션/표정 로드 및 재생 로직
 - `LAppMinimumLive2DManager.java`: UI와 Model 간 브리지 메서드 (`startMotion`, `startExpression`)
+
+---
+
+## 13. ViewModel 도입 및 상태 관리 개선 (2026-01-28 업데이트)
+
+### 배경
+- 기존 `StudioScreen`에서 `remember`로 `FaceTracker`를 생성하여 화면 회전 시 상태 손실 발생
+- 상태 변수가 분산되어 관리 어려움
+- 에러 발생 시 UI 피드백 부재
+
+### 구현 내용
+
+#### 1. StudioViewModel 도입
+`FaceTracker`와 상태를 ViewModel 스코프에서 관리하여 configuration change에서 생존:
+
+```kotlin
+class StudioViewModel(private val context: Context) : ViewModel() {
+    private var faceTracker: FaceTracker? = null
+
+    // 실시간 트래킹 데이터 (30fps) - 별도 Flow
+    val facePose: StateFlow<FacePose>
+    val faceLandmarks: StateFlow<List<NormalizedLandmark>>
+
+    // UI 상태 - 단일 State 객체
+    val uiState: StateFlow<StudioUiState>
+}
+```
+
+#### 2. 상태 분리 전략
+실시간 데이터(30fps)와 UI 상태를 분리하여 성능 최적화:
+
+| 구분 | 타입 | 업데이트 빈도 |
+|------|------|-------------|
+| `facePose`, `faceLandmarks` | 별도 StateFlow | 30fps |
+| `StudioUiState` | 단일 State 객체 | 사용자 액션 시 |
+
+#### 3. StudioUiState 구조
+```kotlin
+data class StudioUiState(
+    val isModelLoading: Boolean = true,
+    val isCalibrating: Boolean = false,
+    val isGpuEnabled: Boolean = false,
+    val trackingError: TrackingError? = null,
+    val isZoomEnabled: Boolean = false,
+    val isMoveEnabled: Boolean = false,
+    val isPreviewVisible: Boolean = true,
+    val dialogState: DialogState = DialogState.None,
+    val expressionsFolder: String? = null,
+    val motionsFolder: String? = null,
+    val expressionFiles: List<String> = emptyList(),
+    val motionFiles: List<String> = emptyList()
+)
+```
+
+### 관련 파일
+| 파일 | 변경 내용 |
+|------|----------|
+| `StudioViewModel.kt` | 신규 생성 - ViewModel 및 UiState 정의 |
+| `StudioScreen.kt` | ViewModel 사용으로 리팩토링 |
+| `feature/studio/build.gradle.kts` | lifecycle-viewmodel-compose 의존성 추가 |
+
+---
+
+## 14. 에러 처리 시스템 구축 (2026-01-28 업데이트)
+
+### 배경
+- 모델 로딩 실패 시 앱이 강제 종료됨 (`Activity.finish()` 호출)
+- FaceTracker 에러가 로그로만 출력되어 사용자에게 피드백 없음
+- 카메라 권한 거부 시 재요청 방법 없음
+
+### 구현 내용
+
+#### 1. 모델 로딩 에러 처리
+기존에는 모델 로딩 실패 시 `Activity.finish()`를 호출하여 앱이 강제 종료되었으나, 이를 예외 기반 처리로 변경:
+
+- `LAppMinimumModel`에서 `Activity.finish()` 대신 `IllegalStateException` throw
+- `LAppMinimumLive2DManager`에서 에러 리스너 콜백 추가
+- 에러 발생 시 ModelSelectScreen으로 복귀 + 스낵바 표시
+- "자세히" 버튼으로 에러 상세 다이얼로그 표시
+
+```java
+// 수정 전
+if (this.modelSetting.getJson() == null) {
+    LAppMinimumDelegate.getInstance().getActivity().finish();
+}
+
+// 수정 후
+if (this.modelSetting.getJson() == null) {
+    throw new IllegalStateException("Failed to load model3.json: " + model3JsonPath);
+}
+```
+
+#### 2. TrackingError Flow 추가
+FaceTracker에 에러 상태 Flow를 추가하여 UI로 에러를 전파:
+
+```kotlin
+sealed class TrackingError {
+    data class FaceLandmarkerInitError(val message: String) : TrackingError()
+    data class CameraError(val message: String) : TrackingError()
+    data class MediaPipeRuntimeError(val message: String) : TrackingError()
+}
+
+class FaceTracker(...) {
+    private val _error = MutableStateFlow<TrackingError?>(null)
+    val error: StateFlow<TrackingError?> = _error
+
+    fun clearError() { _error.value = null }
+}
+```
+
+에러 발생 시점:
+| 에러 타입 | 발생 상황 |
+|----------|----------|
+| `FaceLandmarkerInitError` | MediaPipe 초기화 실패 (GPU/CPU 모두) |
+| `CameraError` | 카메라 시작 실패, 전면 카메라 없음 |
+| `MediaPipeRuntimeError` | MediaPipe 런타임 에러 |
+
+#### 3. 카메라 권한 UX 개선
+기존에는 권한 거부 시 텍스트만 표시되었으나, 사용자 친화적인 UI로 개선:
+
+```kotlin
+@Composable
+private fun CameraPermissionScreen(
+    isPermanentlyDenied: Boolean,
+    onRequestPermission: () -> Unit,
+    onOpenSettings: () -> Unit
+)
+```
+
+- 일반 거부: "권한 허용하기" 버튼으로 재요청
+- 영구 거부 (`shouldShowRequestPermissionRationale = false`): "설정으로 이동" 버튼
+- 설정에서 복귀 시 권한 상태 자동 재확인
+
+#### 4. 전면 카메라 존재 확인
+전면 카메라가 없는 기기에서 명확한 에러 메시지 제공:
+
+```kotlin
+if (!cameraProvider!!.hasCamera(cameraSelector)) {
+    _error.value = TrackingError.CameraError(
+        "전면 카메라를 찾을 수 없습니다. 이 앱은 전면 카메라가 필요합니다."
+    )
+    return@addListener
+}
+```
+
+### 에러 처리 흐름도
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     에러 발생 지점                           │
+├─────────────────────────────────────────────────────────────┤
+│  FaceTracker          │  LAppMinimumModel                   │
+│  - 초기화 실패        │  - model3.json 로드 실패            │
+│  - 카메라 실패        │  - 모델 파일 없음                   │
+│  - MediaPipe 에러     │                                     │
+└──────────┬────────────┴──────────────┬──────────────────────┘
+           │                           │
+           ▼                           ▼
+┌─────────────────────┐    ┌─────────────────────────────────┐
+│ _error.value = ...  │    │ onModelLoadError 콜백 호출      │
+└──────────┬──────────┘    └──────────────┬──────────────────┘
+           │                              │
+           ▼                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│              StudioViewModel / StudioScreen                 │
+│         uiState.trackingError 또는 onError 콜백             │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      스낵바 표시                             │
+│         "트래킹 오류가 발생했습니다" [자세히]               │
+│         "모델 로딩에 실패했습니다" [자세히]                 │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ 자세히 클릭
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   에러 상세 다이얼로그                       │
+│              (에러 메시지 전문 표시)                        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 관련 파일
+| 파일 | 변경 내용 |
+|------|----------|
+| `LAppMinimumModel.java` | `Activity.finish()` → 예외 throw |
+| `LAppMinimumLive2DManager.java` | `OnModelLoadListener` 에러 콜백 추가 |
+| `FaceTracker.kt` | `TrackingError` sealed class, `error` StateFlow 추가 |
+| `StudioViewModel.kt` | `trackingError` 상태 관리, `clearTrackingError()` |
+| `StudioScreen.kt` | 트래킹 에러 스낵바/다이얼로그 |
+| `ModelSelectScreen.kt` | 모델 로딩 에러 스낵바/다이얼로그 |
+| `MainActivity.kt` | `CameraPermissionScreen`, 권한 상태 관리 |
+| `Live2DScreen.kt` | `onModelLoadError` 콜백 추가 |
 

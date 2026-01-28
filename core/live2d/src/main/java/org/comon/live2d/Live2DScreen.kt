@@ -11,8 +11,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import org.comon.live2d.LAppMinimumDelegate
-import org.comon.live2d.LAppMinimumLive2DManager
 
 @Composable
 fun Live2DScreen(
@@ -20,7 +18,9 @@ fun Live2DScreen(
     modelId: String? = null,
     faceParams: Map<String, Float>? = null,
     isZoomEnabled: Boolean = false,
-    isMoveEnabled: Boolean = false
+    isMoveEnabled: Boolean = false,
+    onModelLoaded: (() -> Unit)? = null,
+    onModelLoadError: ((String) -> Unit)? = null
 ) {
     val context: Context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -39,6 +39,16 @@ fun Live2DScreen(
     LaunchedEffect(modelId) {
         modelId?.let { id ->
             glView.queueEvent {
+                LAppMinimumLive2DManager.getInstance().setOnModelLoadListener(
+                    object : LAppMinimumLive2DManager.OnModelLoadListener {
+                        override fun onModelLoaded() {
+                            onModelLoaded?.invoke()
+                        }
+                        override fun onModelLoadError(error: String) {
+                            onModelLoadError?.invoke(error)
+                        }
+                    }
+                )
                 LAppMinimumLive2DManager.getInstance().loadModel(id)
             }
         }

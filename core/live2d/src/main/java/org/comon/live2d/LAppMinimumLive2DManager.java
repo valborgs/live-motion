@@ -25,14 +25,39 @@ public class LAppMinimumLive2DManager {
         s_instance = null;
     }
 
+    // 모델 로딩 상태 리스너
+    public interface OnModelLoadListener {
+        void onModelLoaded();
+        void onModelLoadError(String error);
+    }
+
+    private OnModelLoadListener modelLoadListener;
+
+    public void setOnModelLoadListener(OnModelLoadListener listener) {
+        this.modelLoadListener = listener;
+    }
+
     public void loadModel(String modelDirectoryName) {
-        if (model != null) {
-            model.deleteModel();
-            model = null;
+        try {
+            if (model != null) {
+                model.deleteModel();
+                model = null;
+            }
+            String dir = modelDirectoryName + "/";
+            model = new LAppMinimumModel(dir);
+            model.loadAssets(dir, modelDirectoryName + ".model3.json");
+
+            // 로딩 완료 알림
+            if (modelLoadListener != null) {
+                modelLoadListener.onModelLoaded();
+            }
+        } catch (Exception e) {
+            // 에러 발생 시 리스너에 알림
+            if (modelLoadListener != null) {
+                String errorMessage = e.getMessage() != null ? e.getMessage() : "Unknown error";
+                modelLoadListener.onModelLoadError(errorMessage);
+            }
         }
-        String dir = modelDirectoryName + "/";
-        model = new LAppMinimumModel(dir);
-        model.loadAssets(dir, modelDirectoryName + ".model3.json");
     }
 
     // 캐릭터 스케일 및 오프셋 (확대/이동 기능)
@@ -105,9 +130,7 @@ public class LAppMinimumLive2DManager {
         projection.translateRelative(modelOffsetX / modelScale, modelOffsetY / modelScale);
 
         // 必要があればここで乗算する
-        if (viewMatrix != null) {
-            viewMatrix.multiplyByMatrix(projection);
-        }
+        viewMatrix.multiplyByMatrix(projection);
 
         // 描画前コール
         LAppMinimumDelegate.getInstance().getView().preModelDraw(model);

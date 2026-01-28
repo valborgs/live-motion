@@ -19,14 +19,10 @@ import com.live2d.sdk.cubism.framework.model.CubismUserModel;
 import com.live2d.sdk.cubism.framework.motion.ACubismMotion;
 import com.live2d.sdk.cubism.framework.motion.CubismExpressionMotion;
 import com.live2d.sdk.cubism.framework.motion.CubismMotion;
-import com.live2d.sdk.cubism.framework.motion.IBeganMotionCallback;
-import com.live2d.sdk.cubism.framework.motion.IFinishedMotionCallback;
 import com.live2d.sdk.cubism.framework.rendering.CubismRenderer;
 import com.live2d.sdk.cubism.framework.rendering.android.CubismOffscreenSurfaceAndroid;
 import com.live2d.sdk.cubism.framework.rendering.android.CubismRendererAndroid;
 import com.live2d.sdk.cubism.framework.utils.CubismDebug;
-
-import org.comon.live2d.LAppDefine;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -311,7 +307,7 @@ public class LAppMinimumModel extends CubismUserModel {
 
     public void draw(CubismMatrix44 matrix) {
         if (model == null) {
-            LAppMinimumDelegate.getInstance().getActivity().finish();
+            throw new IllegalStateException("Model is not loaded");
         }
 
         // キャッシュ変数の定義を避けるために、multiplyByMatrix()ではなく、multiply()を使用する。
@@ -364,12 +360,12 @@ public class LAppMinimumModel extends CubismUserModel {
             this.modelSetting = modelSetting;
         }
 
-        // model3.jsonが上手く読み込まれていない場合終了する
+        // model3.jsonが上手く読み込まれていない場合例外をスロー
         if (this.modelSetting.getJson() == null) {
             if (LAppDefine.DEBUG_LOG_ENABLE) {
                 CubismFramework.coreLogFunction("[ERROR]model3.json is not found");
             }
-            LAppMinimumDelegate.getInstance().getActivity().finish();
+            throw new IllegalStateException("Failed to load model3.json: " + model3JsonPath);
         }
 
         // Load Cubism Model

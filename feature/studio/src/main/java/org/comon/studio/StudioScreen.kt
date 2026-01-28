@@ -16,21 +16,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.ui.window.Dialog
+import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 import org.comon.live2d.LAppMinimumLive2DManager
-import android.content.res.AssetManager
-import java.io.IOException
-import org.comon.domain.model.FacePose
 import org.comon.live2d.Live2DScreen
-import org.comon.tracking.FaceToLive2DMapper
-import org.comon.tracking.FaceTracker
+import org.comon.tracking.TrackingError
 
 // 디자인 컬러 정의
 private val ControlPanelBackground = Color(0xFF1A1A2E)
 private val ButtonDefaultColor = Color(0xFF2D2D44)
-private val ButtonHoverColor = Color(0xFF3D3D5C)
 private val AccentBlue = Color(0xFF4A9FF5)
 private val AccentPurple = Color(0xFF7C4DFF)
 private val AccentCyan = Color(0xFF00BCD4)
@@ -41,68 +38,62 @@ private val TextSecondary = Color(0xFFB0B0C3)
 @Composable
 fun StudioScreen(
     modelId: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onError: (String) -> Unit = {},
+    viewModel: StudioViewModel = viewModel(
+        factory = StudioViewModel.Factory(LocalContext.current)
+    )
 ) {
-    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    
-    val faceTracker = remember { FaceTracker(context, lifecycleOwner) }
-    
-    DisposableEffect(faceTracker) {
-        onDispose {
-            faceTracker.stop()
-        }
-    }
-    
-    val mapper = remember { FaceToLive2DMapper() }
-    val facePose by faceTracker.facePose.collectAsStateWithLifecycle()
-    val isCalibrating by faceTracker.isCalibratingUI.collectAsStateWithLifecycle()
-    val landmarks by faceTracker.faceLandmarks.collectAsStateWithLifecycle()
-    val isGpuEnabled by faceTracker.isGpuEnabled.collectAsStateWithLifecycle()
-    
-    var isZoomEnabled by remember { mutableStateOf(false) }
-    var isMoveEnabled by remember { mutableStateOf(false) }
-    var isPreviewVisible by remember { mutableStateOf(true) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
-    var expressionsFolder by remember { mutableStateOf<String?>(null) }
-    var motionsFolder by remember { mutableStateOf<String?>(null) }
-    var expressionFiles by remember { mutableStateOf<List<String>>(emptyList()) }
-    var motionFiles by remember { mutableStateOf<List<String>>(emptyList()) }
-    var showExpressionDialog by remember { mutableStateOf(false) }
-    var showMotionDialog by remember { mutableStateOf(false) }
+    // 에러 상세 다이얼로그 상태
+    var showErrorDetailDialog by remember { mutableStateOf(false) }
+    var currentErrorDetail by remember { mutableStateOf<String?>(null) }
 
+    // 초기화
     LaunchedEffect(modelId) {
-        expressionsFolder = findAssetFolder(context.assets, modelId, "expressions")
-        if (expressionsFolder != null) {
-            expressionFiles = context.assets.list("$modelId/$expressionsFolder")?.toList() ?: emptyList()
-        }
+        viewModel.initialize(lifecycleOwner, modelId)
+    }
 
-        motionsFolder = findAssetFolder(context.assets, modelId, "motions")
-        if (motionsFolder != null) {
-            motionFiles = context.assets.list("$modelId/$motionsFolder")?.toList() ?: emptyList()
+    // 실시간 트래킹 데이터 (별도 collect)
+    val facePose by viewModel.facePose.collectAsStateWithLifecycle()
+    val landmarks by viewModel.faceLandmarks.collectAsStateWithLifecycle()
+
+    // UI 상태 (단일 State)
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // 트래킹 에러 발생 시 스낵바 표시
+    LaunchedEffect(uiState.trackingError) {
+        uiState.trackingError?.let { error ->
+            val errorMessage = when (error) {
+                is TrackingError.FaceLandmarkerInitError -> error.message
+                is TrackingError.CameraError -> error.message
+                is TrackingError.MediaPipeRuntimeError -> error.message
+            }
+            currentErrorDetail = errorMessage
+            scope.launch {
+                val result = snackbarHostState.showSnackbar(
+                    message = "트래킹 오류가 발생했습니다",
+                    actionLabel = "자세히",
+                    duration = SnackbarDuration.Long
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    showErrorDetailDialog = true
+                }
+                viewModel.clearTrackingError()
+            }
         }
     }
-    
+
+    // faceParams 계산
     val faceParams = remember(facePose, landmarks) {
-        if (landmarks.isEmpty()) {
-            mapper.reset()
-            mapOf(
-                "ParamAngleX" to 0f, "ParamAngleY" to 0f, "ParamAngleZ" to 0f,
-                "ParamEyeLOpen" to 1f, "ParamEyeROpen" to 1f, "LipSync" to 0f,
-                "ParamMouthForm" to 0f, "ParamBodyAngleX" to 0f, "ParamBodyAngleY" to 0f,
-                "ParamBodyAngleZ" to 0f, "ParamEyeBallX" to 0f, "ParamEyeBallY" to 0f
-            )
-        } else {
-            mapper.map(facePose)
-        }
+        viewModel.mapFaceParams(facePose, landmarks.isNotEmpty())
     }
 
-    LaunchedEffect(Unit) {
-        faceTracker.setupFaceLandmarker(useGpu = false)
-        faceTracker.startCamera()
-    }
-
-    Column(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
         // 상단 모델 뷰 영역 (8)
         Box(
             modifier = Modifier
@@ -113,12 +104,38 @@ fun StudioScreen(
                 modifier = Modifier.fillMaxSize(),
                 modelId = modelId,
                 faceParams = faceParams,
-                isZoomEnabled = isZoomEnabled,
-                isMoveEnabled = isMoveEnabled
+                isZoomEnabled = uiState.isZoomEnabled,
+                isMoveEnabled = uiState.isMoveEnabled,
+                onModelLoaded = { viewModel.onModelLoaded() },
+                onModelLoadError = { error ->
+                    onError(error)
+                    onBack()
+                }
             )
 
+            // 모델 로딩 오버레이
+            if (uiState.isModelLoading) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.7f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = Color.White)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            "모델 로딩 중...",
+                            color = Color.White,
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
+                }
+            }
+
             // 캘리브레이션 오버레이
-            if (isCalibrating) {
+            if (!uiState.isModelLoading && uiState.isCalibrating) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -178,21 +195,21 @@ fun StudioScreen(
                             text = "뒤로",
                             onClick = onBack
                         )
-                        
-                        if (expressionsFolder != null) {
+
+                        if (uiState.expressionsFolder != null) {
                             StudioIconButton(
                                 emoji = "😊",
                                 text = "감정",
-                                onClick = { showExpressionDialog = true },
+                                onClick = { viewModel.showExpressionDialog() },
                                 accentColor = AccentPurple
                             )
                         }
-                        
-                        if (motionsFolder != null) {
+
+                        if (uiState.motionsFolder != null) {
                             StudioIconButton(
                                 emoji = "🎬",
                                 text = "모션",
-                                onClick = { showMotionDialog = true },
+                                onClick = { viewModel.showMotionDialog() },
                                 accentColor = AccentBlue
                             )
                         }
@@ -206,38 +223,38 @@ fun StudioScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         StudioToggleButton(
-                            text = if (isGpuEnabled) "GPU" else "CPU",
-                            emoji = if (isGpuEnabled) "🚀" else "💻",
-                            checked = isGpuEnabled,
-                            onCheckedChange = { faceTracker.setGpuEnabled(it) },
+                            text = if (uiState.isGpuEnabled) "GPU" else "CPU",
+                            emoji = if (uiState.isGpuEnabled) "🚀" else "💻",
+                            checked = uiState.isGpuEnabled,
+                            onCheckedChange = { viewModel.setGpuEnabled(it) },
                             activeColor = AccentBlue
                         )
                         StudioToggleButton(
                             text = "확대",
                             emoji = "🔍",
-                            checked = isZoomEnabled,
-                            onCheckedChange = { isZoomEnabled = it },
+                            checked = uiState.isZoomEnabled,
+                            onCheckedChange = { viewModel.toggleZoom() },
                             activeColor = AccentPurple
                         )
                         StudioToggleButton(
                             text = "이동",
                             emoji = "↕️",
-                            checked = isMoveEnabled,
-                            onCheckedChange = { isMoveEnabled = it },
+                            checked = uiState.isMoveEnabled,
+                            onCheckedChange = { viewModel.toggleMove() },
                             activeColor = AccentMagenta
                         )
                         StudioToggleButton(
                             text = "프리뷰",
                             emoji = "📷",
-                            checked = isPreviewVisible,
-                            onCheckedChange = { isPreviewVisible = it },
+                            checked = uiState.isPreviewVisible,
+                            onCheckedChange = { viewModel.togglePreview() },
                             activeColor = AccentCyan
                         )
                     }
                 }
 
                 // 프리뷰 영역 (고정 크기)
-                if (isPreviewVisible) {
+                if (uiState.isPreviewVisible) {
                     Spacer(modifier = Modifier.width(12.dp))
                     Box(
                         modifier = Modifier
@@ -249,11 +266,11 @@ fun StudioScreen(
                             factory = { ctx ->
                                 androidx.camera.view.PreviewView(ctx).apply {
                                     scaleType = androidx.camera.view.PreviewView.ScaleType.FILL_CENTER
-                                    faceTracker.attachPreview(surfaceProvider)
+                                    viewModel.attachPreview(surfaceProvider)
                                 }
                             },
                             onRelease = {
-                                faceTracker.detachPreview()
+                                viewModel.detachPreview()
                             }
                         )
 
@@ -262,7 +279,7 @@ fun StudioScreen(
                         ) {
                             val canvasWidth = size.width
                             val canvasHeight = size.height
-                            
+
                             landmarks.forEach { landmark ->
                                 val x = (1.0f - landmark.x()) * canvasWidth
                                 val y = landmark.y() * canvasHeight
@@ -278,31 +295,49 @@ fun StudioScreen(
                 }
             }
         }
-    }
+        }
 
-    // Expression Dialog
-    if (showExpressionDialog) {
-        FileListDialog(
-            title = "감정 목록",
-            files = expressionFiles,
-            onDismiss = { showExpressionDialog = false },
-            onFileSelected = { fileName ->
-                LAppMinimumLive2DManager.getInstance().startExpression("$expressionsFolder/$fileName")
-                showExpressionDialog = false
-            }
+        // 스낵바 호스트
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter)
         )
     }
 
-    // Motion Dialog
-    if (showMotionDialog) {
-        FileListDialog(
-            title = "모션 목록",
-            files = motionFiles,
-            onDismiss = { showMotionDialog = false },
-            onFileSelected = { fileName ->
-                LAppMinimumLive2DManager.getInstance().startMotion("$motionsFolder/$fileName")
-                showMotionDialog = false
-            }
+    // Dialogs
+    when (uiState.dialogState) {
+        is StudioViewModel.DialogState.Expression -> {
+            FileListDialog(
+                title = "감정 목록",
+                files = uiState.expressionFiles,
+                onDismiss = { viewModel.dismissDialog() },
+                onFileSelected = { fileName ->
+                    LAppMinimumLive2DManager.getInstance()
+                        .startExpression("${uiState.expressionsFolder}/$fileName")
+                    viewModel.dismissDialog()
+                }
+            )
+        }
+        is StudioViewModel.DialogState.Motion -> {
+            FileListDialog(
+                title = "모션 목록",
+                files = uiState.motionFiles,
+                onDismiss = { viewModel.dismissDialog() },
+                onFileSelected = { fileName ->
+                    LAppMinimumLive2DManager.getInstance()
+                        .startMotion("${uiState.motionsFolder}/$fileName")
+                    viewModel.dismissDialog()
+                }
+            )
+        }
+        StudioViewModel.DialogState.None -> { /* No dialog */ }
+    }
+
+    // 트래킹 에러 상세 다이얼로그
+    if (showErrorDetailDialog && currentErrorDetail != null) {
+        TrackingErrorDetailDialog(
+            errorMessage = currentErrorDetail!!,
+            onDismiss = { showErrorDetailDialog = false }
         )
     }
 }
@@ -348,7 +383,7 @@ private fun StudioToggleButton(
     activeColor: Color
 ) {
     val backgroundColor = if (checked) activeColor.copy(alpha = 0.85f) else ButtonDefaultColor
-    
+
     Surface(
         onClick = { onCheckedChange(!checked) },
         shape = RoundedCornerShape(12.dp),
@@ -396,7 +431,7 @@ fun FileListDialog(
                     color = TextPrimary,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
-                
+
                 androidx.compose.foundation.lazy.LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -412,9 +447,9 @@ fun FileListDialog(
                         }
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.height(16.dp))
-                
+
                 Button(
                     onClick = onDismiss,
                     modifier = Modifier.align(Alignment.End),
@@ -428,11 +463,54 @@ fun FileListDialog(
     }
 }
 
-private fun findAssetFolder(assetManager: AssetManager, modelId: String, targetFolder: String): String? {
-    return try {
-        val files = assetManager.list(modelId) ?: return null
-        files.firstOrNull { it.equals(targetFolder, ignoreCase = true) }
-    } catch (e: IOException) {
-        null
+@Composable
+private fun TrackingErrorDetailDialog(
+    errorMessage: String,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = ControlPanelBackground)
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp)
+            ) {
+                Text(
+                    text = "트래킹 에러 상세",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = TextPrimary
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = ButtonDefaultColor,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = errorMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = TextSecondary,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier.align(Alignment.End),
+                    colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("확인", color = TextPrimary)
+                }
+            }
+        }
     }
 }
