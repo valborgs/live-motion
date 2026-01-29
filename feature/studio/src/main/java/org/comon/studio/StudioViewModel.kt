@@ -11,23 +11,25 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.comon.domain.common.DomainException
 import org.comon.domain.model.FacePose
-import org.comon.common.asset.ModelAssetReader
-import org.comon.tracking.FaceToLive2DMapper
+import org.comon.domain.model.Live2DParams
+import org.comon.domain.usecase.GetModelMetadataUseCase
+import org.comon.domain.usecase.MapFacePoseUseCase
 import org.comon.tracking.FaceTracker
 import org.comon.tracking.FaceTrackerFactory
 import org.comon.tracking.TrackingError
 
 class StudioViewModel(
     private val faceTrackerFactory: FaceTrackerFactory,
-    private val modelAssetReader: ModelAssetReader
+    private val getModelMetadataUseCase: GetModelMetadataUseCase,
+    private val mapFacePoseUseCase: MapFacePoseUseCase
 ) : ViewModel() {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // FaceTracker & Mapper (configuration change에서 생존)
+    // FaceTracker (configuration change에서 생존)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private var faceTracker: FaceTracker? = null
-    private val mapper = FaceToLive2DMapper()
 
     // FaceTracker 초기화 전에 attachPreview가 호출된 경우 대기
     private var pendingSurfaceProvider: SurfaceProvider? = null
@@ -55,6 +57,9 @@ class StudioViewModel(
         val isCalibrating: Boolean = false,
         val isGpuEnabled: Boolean = false,
         val trackingError: TrackingError? = null,
+
+        // 도메인 에러 (UseCase에서 발생)
+        val domainError: DomainException? = null,
 
         // UI 토글
         val isZoomEnabled: Boolean = false,
@@ -126,46 +131,29 @@ class StudioViewModel(
     }
 
     private fun loadModelMetadata(modelId: String) {
-        val expressionsFolder = modelAssetReader.findAssetFolder(modelId, "expressions")
-        val motionsFolder = modelAssetReader.findAssetFolder(modelId, "motions")
-
-        val expressionFiles = if (expressionsFolder != null) {
-            modelAssetReader.listFiles("$modelId/$expressionsFolder")
-        } else {
-            emptyList()
-        }
-
-        val motionFiles = if (motionsFolder != null) {
-            modelAssetReader.listFiles("$modelId/$motionsFolder")
-        } else {
-            emptyList()
-        }
-
-        _uiState.update {
-            it.copy(
-                expressionsFolder = expressionsFolder,
-                motionsFolder = motionsFolder,
-                expressionFiles = expressionFiles,
-                motionFiles = motionFiles
-            )
-        }
+        getModelMetadataUseCase(modelId)
+            .onSuccess { metadata ->
+                _uiState.update {
+                    it.copy(
+                        expressionsFolder = metadata.expressionsFolder,
+                        motionsFolder = metadata.motionsFolder,
+                        expressionFiles = metadata.expressionFiles,
+                        motionFiles = metadata.motionFiles,
+                        domainError = null
+                    )
+                }
+            }
+            .onError { error ->
+                _uiState.update { it.copy(domainError = error) }
+            }
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // Face Params 계산
+    // Face Params 계산 (UseCase 사용)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     fun mapFaceParams(facePose: FacePose, hasLandmarks: Boolean): Map<String, Float> {
-        return if (!hasLandmarks) {
-            mapper.reset()
-            mapOf(
-                "ParamAngleX" to 0f, "ParamAngleY" to 0f, "ParamAngleZ" to 0f,
-                "ParamEyeLOpen" to 1f, "ParamEyeROpen" to 1f, "ParamMouthOpenY" to 0f,
-                "ParamMouthForm" to 0f, "ParamBodyAngleX" to 0f,
-                "ParamEyeBallX" to 0f, "ParamEyeBallY" to 0f
-            )
-        } else {
-            mapper.map(facePose)
-        }
+        val params = mapFacePoseUseCase(facePose, hasLandmarks)
+        return params.params
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -208,6 +196,10 @@ class StudioViewModel(
         _uiState.update { it.copy(trackingError = null) }
     }
 
+    fun clearDomainError() {
+        _uiState.update { it.copy(domainError = null) }
+    }
+
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Preview 연결/해제
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -240,12 +232,17 @@ class StudioViewModel(
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     class Factory(
         private val faceTrackerFactory: FaceTrackerFactory,
-        private val modelAssetReader: ModelAssetReader
+        private val getModelMetadataUseCase: GetModelMetadataUseCase,
+        private val mapFacePoseUseCase: MapFacePoseUseCase
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             if (modelClass.isAssignableFrom(StudioViewModel::class.java)) {
-                return StudioViewModel(faceTrackerFactory, modelAssetReader) as T
+                return StudioViewModel(
+                    faceTrackerFactory,
+                    getModelMetadataUseCase,
+                    mapFacePoseUseCase
+                ) as T
             }
             throw IllegalArgumentException("Unknown ViewModel class")
         }

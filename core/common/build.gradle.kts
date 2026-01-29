@@ -37,7 +37,7 @@ android {
 }
 
 dependencies {
-
+    implementation(project(":domain"))
     implementation(project(":core:tracking"))
 
     implementation(libs.androidx.core.ktx)

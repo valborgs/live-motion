@@ -45,7 +45,8 @@ fun StudioScreen(
         viewModel(
             factory = StudioViewModel.Factory(
                 container.faceTrackerFactory,
-                container.modelAssetReader
+                container.getModelMetadataUseCase,
+                container.createMapFacePoseUseCase()
             )
         )
     }

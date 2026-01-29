@@ -23,6 +23,7 @@
 13. [ViewModel 도입 및 상태 관리 개선](#13-viewmodel-도입-및-상태-관리-개선-2026-01-28-업데이트)
 14. [에러 처리 시스템 구축](#14-에러-처리-시스템-구축-2026-01-28-업데이트)
 15. [수동 의존성 주입(Manual DI) 리팩토링](#15-수동-의존성-주입manual-di-리팩토링-2026-01-28-업데이트)
+16. [Clean Architecture 리팩터링](#16-clean-architecture-리팩터링-2026-01-29-업데이트)
 
 ---
 
@@ -755,4 +756,342 @@ graph TD
 | `feature/studio/build.gradle.kts` | core:common 의존성 추가 |
 | `core/common/build.gradle.kts` | core:tracking, compose-runtime 의존성 추가 |
 
+---
+
+## 16. Clean Architecture 리팩터링 (2026-01-29 업데이트)
+
+### 배경
+- ViewModel이 `ModelAssetReader`, `FaceToLive2DMapper` 등 인프라 클래스를 직접 참조
+- 비즈니스 로직과 데이터 접근 로직이 혼재되어 단위 테스트 어려움
+- 에러 처리가 각 레이어에 분산되어 일관성 부족
+
+### 목표
+- **Repository 패턴**: 데이터 접근 로직 추상화
+- **UseCase 패턴**: 비즈니스 로직 캡슐화
+- **Result<T> 패턴**: 일관된 예외 처리
+
+### 아키텍처 변경
+
+#### 변경 전
+```
+StudioViewModel
+├─ FaceTrackerFactory.create() 직접 호출
+├─ ModelAssetReader 직접 사용
+└─ FaceToLive2DMapper 직접 사용
+```
+
+#### 변경 후
+```
+StudioViewModel
+├─ GetModelMetadataUseCase → IModelRepository → ModelRepositoryImpl
+└─ MapFacePoseUseCase (EMA 스무딩 포함)
+```
+
+### 구현 내용
+
+#### 1. Domain Layer 기반 구축
+
+**Result 래퍼 및 DomainException** (`domain/common/Result.kt`):
+
+```kotlin
+sealed class Result<out T> {
+    data class Success<T>(val data: T) : Result<T>()
+    data class Error(val exception: DomainException) : Result<Nothing>()
+
+    inline fun onSuccess(action: (T) -> Unit): Result<T>
+    inline fun onError(action: (DomainException) -> Unit): Result<T>
+    inline fun <R> map(transform: (T) -> R): Result<R>
+}
+
+sealed class DomainException(message: String, cause: Throwable? = null) : Exception(message, cause) {
+    class FaceTrackingInitError(message: String) : DomainException(message)
+    class CameraError(message: String) : DomainException(message)
+    class MediaPipeRuntimeError(message: String) : DomainException(message)
+    class ModelNotFoundError(modelId: String) : DomainException("Model not found: $modelId")
+    class AssetReadError(path: String, cause: Throwable?) : DomainException("Failed to read: $path", cause)
+}
+```
+
+**Domain 모델** (`domain/model/`):
+
+```kotlin
+// 모델 메타데이터
+data class Live2DModelInfo(
+    val modelId: String,
+    val expressionsFolder: String?,
+    val motionsFolder: String?,
+    val expressionFiles: List<String>,
+    val motionFiles: List<String>
+)
+
+// Live2D 파라미터 래퍼
+data class Live2DParams(val params: Map<String, Float>) {
+    companion object {
+        val DEFAULT = Live2DParams(mapOf(
+            "ParamAngleX" to 0f, "ParamAngleY" to 0f, "ParamAngleZ" to 0f,
+            "ParamEyeLOpen" to 1f, "ParamEyeROpen" to 1f, ...
+        ))
+    }
+}
+```
+
+**Repository 인터페이스** (`domain/repository/IModelRepository.kt`):
+
+```kotlin
+interface IModelRepository {
+    fun listLive2DModels(): Result<List<String>>
+    fun getModelMetadata(modelId: String): Result<Live2DModelInfo>
+    fun modelExists(modelId: String): Boolean
+}
+```
+
+#### 2. UseCase 클래스
+
+**GetLive2DModelsUseCase**: 모델 목록 조회
+```kotlin
+class GetLive2DModelsUseCase(private val modelRepository: IModelRepository) {
+    operator fun invoke(): Result<List<String>> = modelRepository.listLive2DModels()
+}
+```
+
+**GetModelMetadataUseCase**: 모델 메타데이터 조회
+```kotlin
+class GetModelMetadataUseCase(private val modelRepository: IModelRepository) {
+    operator fun invoke(modelId: String): Result<Live2DModelInfo> =
+        modelRepository.getModelMetadata(modelId)
+}
+```
+
+**MapFacePoseUseCase**: FacePose → Live2D 파라미터 변환 (EMA 스무딩 포함)
+```kotlin
+class MapFacePoseUseCase {
+    private var lastPose = FacePose()
+    private val alpha = 0.4f
+
+    fun reset()
+    operator fun invoke(facePose: FacePose, hasLandmarks: Boolean): Live2DParams
+}
+```
+
+> **Note**: `MapFacePoseUseCase`는 EMA 스무딩을 위한 상태를 가지므로, DI 컨테이너에서 매번 새 인스턴스를 생성합니다.
+
+#### 3. Data Layer 구현
+
+**ModelRepositoryImpl** (`data/repository/ModelRepositoryImpl.kt`):
+
+```kotlin
+class ModelRepositoryImpl(
+    private val modelAssetReader: ModelAssetReader
+) : IModelRepository {
+
+    override fun listLive2DModels(): Result<List<String>> {
+        return try {
+            Result.success(modelAssetReader.listLive2DModels())
+        } catch (e: Exception) {
+            Result.error(DomainException.AssetReadError("assets root", e))
+        }
+    }
+
+    override fun getModelMetadata(modelId: String): Result<Live2DModelInfo> {
+        return try {
+            val expressionsFolder = modelAssetReader.findAssetFolder(modelId, "expressions")
+            val motionsFolder = modelAssetReader.findAssetFolder(modelId, "motions")
+            // ... 파일 목록 조회
+            Result.success(Live2DModelInfo(...))
+        } catch (e: Exception) {
+            Result.error(DomainException.AssetReadError(modelId, e))
+        }
+    }
+}
+```
+
+#### 4. DI Container 확장
+
+**AppContainer 인터페이스** (`core/common/di/AppContainer.kt`):
+
+```kotlin
+interface AppContainer {
+    // 기존 (하위 호환성)
+    val modelAssetReader: ModelAssetReader
+    val faceTrackerFactory: FaceTrackerFactory
+
+    // 신규 - Repository
+    val modelRepository: IModelRepository
+
+    // 신규 - UseCases
+    val getLive2DModelsUseCase: GetLive2DModelsUseCase
+    val getModelMetadataUseCase: GetModelMetadataUseCase
+    fun createMapFacePoseUseCase(): MapFacePoseUseCase  // Stateful - 매번 새 인스턴스
+}
+```
+
+**AppContainerImpl 구현** (`app/di/AppContainer.kt`):
+
+```kotlin
+class AppContainerImpl(application: Application) : AppContainer {
+    // 의존성 그래프:
+    // modelAssetReader
+    //     └─ ModelRepositoryImpl
+    //         ├─ GetLive2DModelsUseCase
+    //         └─ GetModelMetadataUseCase
+
+    override val modelRepository: IModelRepository by lazy {
+        ModelRepositoryImpl(modelAssetReader)
+    }
+
+    override val getLive2DModelsUseCase by lazy {
+        GetLive2DModelsUseCase(modelRepository)
+    }
+
+    override val getModelMetadataUseCase by lazy {
+        GetModelMetadataUseCase(modelRepository)
+    }
+
+    override fun createMapFacePoseUseCase() = MapFacePoseUseCase()
+}
+```
+
+#### 5. ViewModel 리팩터링
+
+**StudioViewModel** 변경:
+
+```kotlin
+// 수정 전
+class StudioViewModel(
+    private val faceTrackerFactory: FaceTrackerFactory,
+    private val modelAssetReader: ModelAssetReader
+) : ViewModel() {
+    private val mapper = FaceToLive2DMapper()
+
+    private fun loadModelMetadata(modelId: String) {
+        val expressionsFolder = modelAssetReader.findAssetFolder(modelId, "expressions")
+        // ... 직접 호출
+    }
+}
+
+// 수정 후
+class StudioViewModel(
+    private val faceTrackerFactory: FaceTrackerFactory,
+    private val getModelMetadataUseCase: GetModelMetadataUseCase,
+    private val mapFacePoseUseCase: MapFacePoseUseCase
+) : ViewModel() {
+
+    private fun loadModelMetadata(modelId: String) {
+        getModelMetadataUseCase(modelId)
+            .onSuccess { metadata ->
+                _uiState.update { it.copy(
+                    expressionsFolder = metadata.expressionsFolder,
+                    motionsFolder = metadata.motionsFolder,
+                    expressionFiles = metadata.expressionFiles,
+                    motionFiles = metadata.motionFiles
+                )}
+            }
+            .onError { error ->
+                _uiState.update { it.copy(domainError = error) }
+            }
+    }
+
+    fun mapFaceParams(facePose: FacePose, hasLandmarks: Boolean): Map<String, Float> {
+        return mapFacePoseUseCase(facePose, hasLandmarks).params
+    }
+}
+```
+
+### 최종 아키텍처 다이어그램
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Presentation Layer                        │
+│  ┌─────────────────┐    ┌──────────────────────────────┐   │
+│  │ ModelSelectScreen│    │         StudioScreen         │   │
+│  └────────┬────────┘    └──────────────┬───────────────┘   │
+│           │                            │                    │
+│           ▼                            ▼                    │
+│  ┌────────────────────────────────────────────────────┐    │
+│  │                  StudioViewModel                    │    │
+│  │  - uiState: StateFlow<UiState>                     │    │
+│  │  - facePose: StateFlow<FacePose>                   │    │
+│  └────────────────────────┬───────────────────────────┘    │
+└───────────────────────────┼─────────────────────────────────┘
+                            │
+┌───────────────────────────┼─────────────────────────────────┐
+│                    Domain Layer                              │
+│           ┌───────────────┴───────────────┐                 │
+│           ▼                               ▼                 │
+│  ┌─────────────────────┐    ┌─────────────────────────┐    │
+│  │GetModelMetadataUseCase│   │   MapFacePoseUseCase    │    │
+│  └──────────┬──────────┘    └─────────────────────────┘    │
+│             │                                               │
+│             ▼                                               │
+│  ┌─────────────────────┐                                   │
+│  │   IModelRepository   │ ◄── Interface                    │
+│  └──────────┬──────────┘                                   │
+└─────────────┼───────────────────────────────────────────────┘
+              │
+┌─────────────┼───────────────────────────────────────────────┐
+│             │           Data Layer                           │
+│             ▼                                                │
+│  ┌─────────────────────┐    ┌─────────────────────────┐    │
+│  │ ModelRepositoryImpl  │───►│   ModelAssetReader      │    │
+│  └─────────────────────┘    └─────────────────────────┘    │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### 모듈 의존성 변경
+
+```mermaid
+graph TD
+    A[app] --> B[domain]
+    A --> C[data]
+    A --> D[core:common]
+    C --> B
+    C --> D
+    D --> B
+    E[feature:studio] --> B
+    E --> D
+```
+
+**build.gradle.kts 변경 사항**:
+
+| 모듈 | 추가된 의존성 |
+|------|--------------|
+| `domain` | (변경 없음 - 순수 Kotlin) |
+| `data` | `domain`, `core:common` |
+| `core:common` | `domain` |
+| `app` | `domain`, `data` |
+
+### 관련 파일
+
+**신규 생성 (9개)**
+
+| 파일 | 위치 | 설명 |
+|------|------|------|
+| `Result.kt` | domain/common | Result 래퍼 + DomainException |
+| `Live2DModelInfo.kt` | domain/model | 모델 메타데이터 DTO |
+| `Live2DParams.kt` | domain/model | Live2D 파라미터 래퍼 |
+| `IModelRepository.kt` | domain/repository | Repository 인터페이스 |
+| `GetLive2DModelsUseCase.kt` | domain/usecase | 모델 목록 조회 |
+| `GetModelMetadataUseCase.kt` | domain/usecase | 메타데이터 조회 |
+| `MapFacePoseUseCase.kt` | domain/usecase | 파라미터 매핑 + EMA |
+| `ModelRepositoryImpl.kt` | data/repository | Repository 구현체 |
+
+**수정됨 (7개)**
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `data/build.gradle.kts` | domain, core:common 의존성 추가 |
+| `core/common/build.gradle.kts` | domain 의존성 추가 |
+| `app/build.gradle.kts` | domain, data 의존성 추가 |
+| `AppContainer.kt` (interface) | Repository, UseCase 프로퍼티 추가 |
+| `AppContainerImpl.kt` | 의존성 그래프 구성 |
+| `StudioViewModel.kt` | UseCase 주입 및 사용 |
+| `StudioScreen.kt` | ViewModel Factory 수정 |
+| `ModelSelectScreen.kt` | GetLive2DModelsUseCase 사용 |
+
+### 이점
+
+1. **테스트 용이성**: Repository를 Mock으로 대체하여 UseCase 단위 테스트 가능
+2. **관심사 분리**: 데이터 접근, 비즈니스 로직, UI가 명확히 분리
+3. **일관된 에러 처리**: `Result<T>` 패턴으로 모든 레이어에서 동일한 방식의 에러 처리
+4. **유지보수성**: 데이터 소스 변경 시 Repository 구현체만 수정
 

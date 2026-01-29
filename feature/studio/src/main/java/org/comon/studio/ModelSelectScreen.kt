@@ -25,7 +25,7 @@ fun ModelSelectScreen(
 ) {
     val container = LocalAppContainer.current
     val modelList = remember {
-        container.modelAssetReader.listLive2DModels()
+        container.getLive2DModelsUseCase().getOrNull() ?: emptyList()
     }
 
     val snackbarHostState = remember { SnackbarHostState() }

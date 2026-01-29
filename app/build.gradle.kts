@@ -46,6 +46,8 @@ android {
 
 dependencies {
     // 모듈 의존성
+    implementation(project(":domain"))
+    implementation(project(":data"))
     implementation(project(":core:common"))
     implementation(project(":core:tracking"))
     implementation(project(":core:ui"))
