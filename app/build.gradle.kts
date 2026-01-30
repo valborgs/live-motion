@@ -50,6 +50,7 @@ dependencies {
     implementation(project(":data"))
     implementation(project(":core:common"))
     implementation(project(":core:tracking"))
+    implementation(project(":core:storage"))
     implementation(project(":core:ui"))
     implementation(project(":core:navigation"))
     implementation(project(":core:live2d"))

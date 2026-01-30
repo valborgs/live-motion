@@ -41,9 +41,11 @@ android {
 }
 
 dependencies {
+    implementation(project(":domain"))
+
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
-    
+
     // Live2D SDK
     implementation(files("../../app/libs/Live2DCubismCore.aar"))
     implementation(project(":live2d:framework"))

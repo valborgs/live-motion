@@ -11,10 +11,44 @@ import com.live2d.sdk.cubism.core.ICubismLogger;
 
 import org.comon.live2d.LAppDefine;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
 public class LAppMinimumPal {
+    // 외부 모델 로딩을 위한 기본 경로
+    private static String externalBasePath = null;
+
+    /**
+     * 외부 모델 로딩을 위한 기본 경로를 설정합니다.
+     * 설정되면 파일 로딩 시 assets 대신 파일 시스템을 사용합니다.
+     * @param path 모델 디렉토리의 절대 경로, 또는 null (assets 사용)
+     */
+    public static void setExternalBasePath(String path) {
+        externalBasePath = path;
+    }
+
+    /**
+     * 외부 기본 경로를 초기화하여 assets 로딩으로 되돌립니다.
+     */
+    public static void clearExternalBasePath() {
+        externalBasePath = null;
+    }
+
+    /**
+     * 현재 외부 경로에서 로딩 중인지 확인합니다.
+     */
+    public static boolean isExternalLoading() {
+        return externalBasePath != null;
+    }
+
+    /**
+     * 현재 설정된 외부 기본 경로를 반환합니다.
+     */
+    public static String getExternalBasePath() {
+        return externalBasePath;
+    }
     /**
      * Logging Function class to be registered in the CubismFramework's logging function.
      */
@@ -37,11 +71,28 @@ public class LAppMinimumPal {
         lastNanoTime = s_currentFrame;
     }
 
-    // ファイルをバイト列として読み込む
+    // ファイルをバイト列として読み込む (assets 또는 파일 시스템에서)
     public static byte[] loadFileAsBytes(final String path) {
         InputStream fileData = null;
         try {
-            fileData = LAppMinimumDelegate.getInstance().getActivity().getAssets().open(path);
+            if (externalBasePath != null) {
+                // 파일 시스템에서 로드
+                File file = new File(externalBasePath, path);
+                if (!file.exists()) {
+                    // 절대 경로로 시도
+                    file = new File(path);
+                }
+                if (!file.exists()) {
+                    if (LAppDefine.DEBUG_LOG_ENABLE) {
+                        printLog("File not found: " + path);
+                    }
+                    return new byte[0];
+                }
+                fileData = new FileInputStream(file);
+            } else {
+                // assets에서 로드
+                fileData = LAppMinimumDelegate.getInstance().getActivity().getAssets().open(path);
+            }
 
             int fileSize = fileData.available();
             byte[] fileBuffer = new byte[fileSize];
@@ -52,18 +103,20 @@ public class LAppMinimumPal {
             e.printStackTrace();
 
             if (LAppDefine.DEBUG_LOG_ENABLE) {
-                printLog("File open error.");
+                printLog("File open error: " + path);
             }
 
             return new byte[0];
         } finally {
             try {
-                fileData.close();
+                if (fileData != null) {
+                    fileData.close();
+                }
             } catch (IOException e) {
                 e.printStackTrace();
 
                 if (LAppDefine.DEBUG_LOG_ENABLE) {
-                    printLog("File open error.");
+                    printLog("File close error.");
                 }
             }
         }

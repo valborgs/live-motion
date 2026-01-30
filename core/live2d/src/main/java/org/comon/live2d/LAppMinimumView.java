@@ -33,7 +33,10 @@ public class LAppMinimumView implements AutoCloseable {
 
     @Override
     public void close() {
-        spriteShader.close();
+        if (spriteShader != null) {
+            spriteShader.close();
+            spriteShader = null;
+        }
     }
 
     // ビューを初期化する

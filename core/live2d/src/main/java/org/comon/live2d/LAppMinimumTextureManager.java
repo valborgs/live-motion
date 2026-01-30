@@ -13,6 +13,8 @@ import android.graphics.BitmapFactory;
 import android.opengl.GLES20;
 import android.opengl.GLUtils;
 
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
@@ -28,7 +30,7 @@ public class LAppMinimumTextureManager {
         public String filePath; // ファイル名
     }
 
-    // 画像読み込み
+    // 画像読み込み (assets 또는 파일 시스템에서)
     // imageFileOffset: glGenTexturesで作成したテクスチャの保存場所
     public TextureInfo createTextureFromPngFile(String filePath) {
         // search loaded texture already
@@ -38,16 +40,33 @@ public class LAppMinimumTextureManager {
             }
         }
 
-        // assetsフォルダの画像からビットマップを作成する
-        AssetManager assetManager = LAppMinimumDelegate.getInstance().getActivity().getAssets();
+        // 외부 경로 또는 assets에서 이미지 로드
         InputStream stream = null;
         try {
-            stream = assetManager.open(filePath);
+            if (LAppMinimumPal.isExternalLoading()) {
+                // 파일 시스템에서 로드
+                String basePath = LAppMinimumPal.getExternalBasePath();
+                File file = new File(basePath, filePath);
+                if (!file.exists()) {
+                    file = new File(filePath);
+                }
+                stream = new FileInputStream(file);
+            } else {
+                // assets에서 로드
+                AssetManager assetManager = LAppMinimumDelegate.getInstance().getActivity().getAssets();
+                stream = assetManager.open(filePath);
+            }
         } catch (IOException e) {
             e.printStackTrace();
+            return null;
         }
         // decodeStreamは乗算済みアルファとして画像を読み込むようである
         Bitmap bitmap = BitmapFactory.decodeStream(stream);
+        try {
+            stream.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
 
         // Texture0をアクティブにする
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);

@@ -28,12 +28,14 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
+import org.comon.common.di.LocalAppContainer
+import org.comon.domain.model.ExternalModel
+import org.comon.domain.model.ModelSource
 import org.comon.live2d.LAppMinimumDelegate
 import org.comon.navigation.NavKey
 import org.comon.studio.ModelSelectScreen
 import org.comon.studio.StudioScreen
 import org.comon.ui.theme.LiveMotionTheme
-import org.comon.common.di.LocalAppContainer
 
 class MainActivity : ComponentActivity() {
 
@@ -120,8 +122,24 @@ class MainActivity : ComponentActivity() {
                         .collectAsState()
 
                     ModelSelectScreen(
-                        onModelSelected = { modelId ->
-                            navController.navigate(NavKey.Studio(modelId))
+                        onModelSelected = { modelSource ->
+                            when (modelSource) {
+                                is ModelSource.Asset -> {
+                                    navController.navigate(
+                                        NavKey.Studio(modelId = modelSource.modelId)
+                                    )
+                                }
+                                is ModelSource.External -> {
+                                    navController.navigate(
+                                        NavKey.Studio(
+                                            modelId = modelSource.model.id,
+                                            isExternal = true,
+                                            cachePath = modelSource.model.cachePath,
+                                            modelJsonName = modelSource.model.modelJsonName
+                                        )
+                                    )
+                                }
+                            }
                         },
                         errorMessage = errorMessage,
                         onErrorConsumed = {
@@ -132,8 +150,28 @@ class MainActivity : ComponentActivity() {
                 }
                 composable<NavKey.Studio> { backStackEntry ->
                     val studio = backStackEntry.toRoute<NavKey.Studio>()
+                    // NavKey에서 ModelSource 복원 (로컬 변수로 캡처하여 스마트 캐스트 가능하게 함)
+                    val cachePath = studio.cachePath
+                    val modelJsonName = studio.modelJsonName
+                    val modelSource = if (studio.isExternal && cachePath != null && modelJsonName != null) {
+                        ModelSource.External(
+                            ExternalModel(
+                                id = studio.modelId,
+                                name = modelJsonName.removeSuffix(".model3.json"),
+                                originalUri = "", // 네비게이션 시에는 필요 없음
+                                cachePath = cachePath,
+                                modelJsonName = modelJsonName,
+                                sizeBytes = 0,
+                                cachedAt = 0,
+                                lastAccessedAt = 0
+                            )
+                        )
+                    } else {
+                        ModelSource.Asset(studio.modelId)
+                    }
+
                     StudioScreen(
-                        modelId = studio.modelId,
+                        modelSource = modelSource,
                         onBack = {
                             navController.popBackStack()
                         },
@@ -162,20 +200,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onStart() {
-        super.onStart()
-        LAppMinimumDelegate.getInstance().onStart(this)
-    }
-
-    override fun onStop() {
-        super.onStop()
-        LAppMinimumDelegate.getInstance().onStop()
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        LAppMinimumDelegate.getInstance().onDestroy()
-    }
+    // Live2D lifecycle은 Live2DScreen에서 관리
+    // Activity lifecycle에서는 관리하지 않음 (SAF picker 등 다른 Activity가 열릴 때 문제 방지)
 }
 
 @Composable

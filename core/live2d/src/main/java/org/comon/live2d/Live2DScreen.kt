@@ -11,11 +11,12 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import org.comon.domain.model.ModelSource
 
 @Composable
 fun Live2DScreen(
     modifier: Modifier = Modifier,
-    modelId: String? = null,
+    modelSource: ModelSource? = null,
     faceParams: Map<String, Float>? = null,
     isZoomEnabled: Boolean = false,
     isMoveEnabled: Boolean = false,
@@ -35,9 +36,9 @@ fun Live2DScreen(
         glView.isMoveEnabled = isMoveEnabled
     }
 
-    // 모델 ID 변경 시 GL Thread로 작업 큐잉
-    LaunchedEffect(modelId) {
-        modelId?.let { id ->
+    // 모델 소스 변경 시 GL Thread로 작업 큐잉
+    LaunchedEffect(modelSource) {
+        modelSource?.let { source ->
             glView.queueEvent {
                 LAppMinimumLive2DManager.getInstance().setOnModelLoadListener(
                     object : LAppMinimumLive2DManager.OnModelLoadListener {
@@ -49,7 +50,17 @@ fun Live2DScreen(
                         }
                     }
                 )
-                LAppMinimumLive2DManager.getInstance().loadModel(id)
+                when (source) {
+                    is ModelSource.Asset -> {
+                        LAppMinimumLive2DManager.getInstance().loadModel(source.modelId)
+                    }
+                    is ModelSource.External -> {
+                        LAppMinimumLive2DManager.getInstance().loadExternalModel(
+                            source.model.cachePath,
+                            source.model.modelJsonName
+                        )
+                    }
+                }
             }
         }
     }
@@ -81,9 +92,9 @@ fun Live2DScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            // 화면을 나갈 때 델리게이트와 매니저를 해제하여 텍스처 캐시 등을 초기화함
+            // 화면을 나갈 때 리소스 정리 (view, textureManager, model, CubismFramework.dispose)
+            // 싱글톤 인스턴스는 유지하여 다음 초기화 시 cleanUp+startUp이 다시 호출되지 않도록 함
             LAppMinimumDelegate.getInstance().onStop()
-            LAppMinimumDelegate.releaseInstance()
         }
     }
 }

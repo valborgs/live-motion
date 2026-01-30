@@ -42,6 +42,21 @@ public class LAppMinimumDelegate {
     }
 
     public void onStop() {
+        // View와 TextureManager 정리
+        if (view != null) {
+            view.close();
+            view = null;
+        }
+        textureManager = null;
+
+        // 모델 매니저 정리 (모델 리소스 해제)
+        LAppMinimumLive2DManager.releaseInstance();
+
+        // CubismFramework 정리 (다음 초기화를 위해)
+        CubismFramework.dispose();
+    }
+
+    public void onDestroy() {
         if (view != null) {
             view.close();
         }
@@ -49,9 +64,6 @@ public class LAppMinimumDelegate {
 
         LAppMinimumLive2DManager.releaseInstance();
         CubismFramework.dispose();
-    }
-
-    public void onDestroy() {
         releaseInstance();
     }
 
@@ -77,8 +89,6 @@ public class LAppMinimumDelegate {
         // AppViewの初期化
         view.initialize();
         view.initializeSprite();
-
-        isActive = true;
     }
 
     public void run() {
@@ -92,11 +102,6 @@ public class LAppMinimumDelegate {
 
         if (view != null) {
             view.render();
-        }
-
-        // アプリケーションを非アクティブにする
-        if (!isActive) {
-            activity.finishAndRemoveTask();
         }
     }
 
@@ -169,7 +174,6 @@ public class LAppMinimumDelegate {
     private LAppMinimumView view;
     private int windowWidth;
     private int windowHeight;
-    private boolean isActive;
 
     /**
      * クリックしているか

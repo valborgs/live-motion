@@ -22,7 +22,14 @@ public class LAppMinimumLive2DManager {
     }
 
     public static void releaseInstance() {
-        s_instance = null;
+        if (s_instance != null) {
+            // 모델 리소스 정리
+            if (s_instance.model != null) {
+                s_instance.model.deleteModel();
+                s_instance.model = null;
+            }
+            s_instance = null;
+        }
     }
 
     // 모델 로딩 상태 리스너
@@ -39,6 +46,9 @@ public class LAppMinimumLive2DManager {
 
     public void loadModel(String modelDirectoryName) {
         try {
+            // 외부 경로 초기화 (assets 모드로 전환)
+            LAppMinimumPal.clearExternalBasePath();
+
             if (model != null) {
                 model.deleteModel();
                 model = null;
@@ -58,6 +68,44 @@ public class LAppMinimumLive2DManager {
                 modelLoadListener.onModelLoadError(errorMessage);
             }
         }
+    }
+
+    /**
+     * 외부 저장소(캐시 경로)에서 모델을 로드합니다.
+     * @param cachePath 캐시된 모델 디렉토리의 절대 경로
+     * @param modelJsonName model3.json 파일명
+     */
+    public void loadExternalModel(String cachePath, String modelJsonName) {
+        try {
+            if (model != null) {
+                model.deleteModel();
+                model = null;
+            }
+
+            // 외부 기본 경로 설정 (파일 시스템 모드로 전환)
+            LAppMinimumPal.setExternalBasePath(cachePath);
+
+            String modelName = modelJsonName.replace(".model3.json", "");
+            model = new LAppMinimumModel(modelName);
+            model.loadAssets("", modelJsonName);
+
+            if (modelLoadListener != null) {
+                modelLoadListener.onModelLoaded();
+            }
+        } catch (Exception e) {
+            LAppMinimumPal.clearExternalBasePath();
+            if (modelLoadListener != null) {
+                String errorMessage = e.getMessage() != null ? e.getMessage() : "Unknown error";
+                modelLoadListener.onModelLoadError(errorMessage);
+            }
+        }
+    }
+
+    /**
+     * 현재 외부 모델이 로드되어 있는지 확인합니다.
+     */
+    public boolean isExternalModel() {
+        return LAppMinimumPal.isExternalLoading();
     }
 
     // 캐릭터 스케일 및 오프셋 (확대/이동 기능)
@@ -198,7 +246,13 @@ public class LAppMinimumLive2DManager {
     private static LAppMinimumLive2DManager s_instance;
 
     private LAppMinimumLive2DManager() {
-        loadModel("gyana3");
+        // 기본 모델 로딩을 시도하지만 실패해도 인스턴스는 생성됨
+        // 실제 모델 로딩은 loadModel() 또는 loadExternalModel()로 수행
+        try {
+            loadModel("gyana3");
+        } catch (Exception ignored) {
+            // 기본 모델이 없어도 무시
+        }
     }
 
     private LAppMinimumModel model;

@@ -21,6 +21,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
 import org.comon.common.di.LocalAppContainer
+import org.comon.domain.model.ModelSource
 import org.comon.live2d.LAppMinimumLive2DManager
 import org.comon.live2d.Live2DScreen
 import org.comon.tracking.TrackingError
@@ -37,7 +38,7 @@ private val TextSecondary = Color(0xFFB0B0C3)
 
 @Composable
 fun StudioScreen(
-    modelId: String,
+    modelSource: ModelSource,
     onBack: () -> Unit,
     onError: (String) -> Unit = {},
     viewModel: StudioViewModel = run {
@@ -60,7 +61,12 @@ fun StudioScreen(
     var currentErrorDetail by remember { mutableStateOf<String?>(null) }
 
     // 초기화
-    LaunchedEffect(modelId) {
+    LaunchedEffect(modelSource) {
+        // Asset 모델일 경우에만 메타데이터 로드 시도
+        val modelId = when (modelSource) {
+            is ModelSource.Asset -> modelSource.modelId
+            is ModelSource.External -> null // 외부 모델은 메타데이터 로드 스킵
+        }
         viewModel.initialize(lifecycleOwner, modelId)
     }
 
@@ -109,7 +115,7 @@ fun StudioScreen(
         ) {
             Live2DScreen(
                 modifier = Modifier.fillMaxSize(),
-                modelId = modelId,
+                modelSource = modelSource,
                 faceParams = faceParams,
                 isZoomEnabled = uiState.isZoomEnabled,
                 isMoveEnabled = uiState.isMoveEnabled,

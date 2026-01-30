@@ -85,7 +85,7 @@ class StudioViewModel(
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 초기화
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    fun initialize(lifecycleOwner: LifecycleOwner, modelId: String) {
+    fun initialize(lifecycleOwner: LifecycleOwner, modelId: String?) {
         if (faceTracker == null) {
             faceTracker = faceTrackerFactory.create(lifecycleOwner).also { tracker ->
                 // FaceTracker의 StateFlow를 ViewModel로 전파
@@ -127,7 +127,8 @@ class StudioViewModel(
             }
         }
 
-        loadModelMetadata(modelId)
+        // Asset 모델일 경우에만 메타데이터 로드
+        modelId?.let { loadModelMetadata(it) }
     }
 
     private fun loadModelMetadata(modelId: String) {
