@@ -32,11 +32,12 @@ import androidx.navigation.toRoute
 import org.comon.common.di.LocalAppContainer
 import org.comon.domain.model.ExternalModel
 import org.comon.domain.model.ModelSource
-import org.comon.live2d.LAppMinimumDelegate
 import org.comon.navigation.NavKey
 import org.comon.studio.CubismIntroScreen
 import org.comon.studio.ModelSelectScreen
+import org.comon.studio.SettingsScreen
 import org.comon.studio.StudioScreen
+import org.comon.studio.TitleScreen
 import org.comon.ui.theme.LiveMotionTheme
 
 class MainActivity : ComponentActivity() {
@@ -121,9 +122,26 @@ class MainActivity : ComponentActivity() {
                 composable<NavKey.Intro> {
                     CubismIntroScreen(
                         onTimeout = {
-                            navController.navigate(NavKey.ModelSelect) {
+                            navController.navigate(NavKey.Title) {
                                 popUpTo(NavKey.Intro) { inclusive = true }
                             }
+                        }
+                    )
+                }
+                composable<NavKey.Title> {
+                    TitleScreen(
+                        onStudioClick = {
+                            navController.navigate(NavKey.ModelSelect)
+                        },
+                        onSettingsClick = {
+                            navController.navigate(NavKey.Settings)
+                        }
+                    )
+                }
+                composable<NavKey.Settings> {
+                    SettingsScreen(
+                        onBack = {
+                            navController.popBackStack()
                         }
                     )
                 }

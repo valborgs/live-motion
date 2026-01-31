@@ -8,6 +8,12 @@ sealed interface NavKey {
     data object Intro : NavKey
 
     @Serializable
+    data object Title : NavKey
+
+    @Serializable
+    data object Settings : NavKey
+
+    @Serializable
     data object ModelSelect : NavKey
 
     /**
