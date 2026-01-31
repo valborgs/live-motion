@@ -8,24 +8,55 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
+    primary = Mint80,
+    onPrimary = Neutral10,
+    primaryContainer = Mint30,
+    onPrimaryContainer = Mint90,
+    secondary = Teal80,
+    onSecondary = Neutral10,
+    secondaryContainer = Teal40,
+    onSecondaryContainer = Color.White,
+    tertiary = Coral80,
+    onTertiary = Neutral10,
+    tertiaryContainer = Coral40,
+    onTertiaryContainer = Color.White,
+    background = Neutral10,
+    onBackground = Neutral99,
+    surface = Neutral10,
+    onSurface = Neutral99,
+    surfaceVariant = NeutralVariant30,
+    onSurfaceVariant = NeutralVariant90
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40
+    primary = Mint70,
+    onPrimary = Color.White,
+    primaryContainer = Mint90,
+    onPrimaryContainer = Mint30,
+    secondary = Teal40,
+    onSecondary = Color.White,
+    secondaryContainer = Teal80,
+    onSecondaryContainer = Neutral10,
+    tertiary = Coral40,
+    onTertiary = Color.White,
+    tertiaryContainer = Coral80,
+    onTertiaryContainer = Neutral10,
+    background = Neutral99,
+    onBackground = Neutral10,
+    surface = Neutral99,
+    onSurface = Neutral10,
+    surfaceVariant = NeutralVariant90,
+    onSurfaceVariant = NeutralVariant30
 )
 
 @Composable
 fun LiveMotionTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
+    dynamicColor: Boolean = false, // 민트 테마 사용을 위해 기본값 false
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {

@@ -26,16 +26,6 @@ import org.comon.live2d.LAppMinimumLive2DManager
 import org.comon.live2d.Live2DScreen
 import org.comon.tracking.TrackingError
 
-// 디자인 컬러 정의
-private val ControlPanelBackground = Color(0xFF1A1A2E)
-private val ButtonDefaultColor = Color(0xFF2D2D44)
-private val AccentBlue = Color(0xFF4A9FF5)
-private val AccentPurple = Color(0xFF7C4DFF)
-private val AccentCyan = Color(0xFF00BCD4)
-private val AccentMagenta = Color(0xFFE040FB)
-private val TextPrimary = Color(0xFFFFFFFF)
-private val TextSecondary = Color(0xFFB0B0C3)
-
 @Composable
 fun StudioScreen(
     modelSource: ModelSource,
@@ -172,8 +162,8 @@ fun StudioScreen(
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            ControlPanelBackground.copy(alpha = 0.95f),
-                            ControlPanelBackground
+                            MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.95f),
+                            MaterialTheme.colorScheme.surfaceContainer
                         )
                     )
                 )
@@ -209,7 +199,7 @@ fun StudioScreen(
                                 emoji = "😊",
                                 text = "감정",
                                 onClick = { viewModel.showExpressionDialog() },
-                                accentColor = AccentPurple
+                                accentColor = MaterialTheme.colorScheme.primary
                             )
                         }
 
@@ -218,7 +208,7 @@ fun StudioScreen(
                                 emoji = "🎬",
                                 text = "모션",
                                 onClick = { viewModel.showMotionDialog() },
-                                accentColor = AccentBlue
+                                accentColor = MaterialTheme.colorScheme.secondary
                             )
                         }
                     }
@@ -235,28 +225,28 @@ fun StudioScreen(
                             emoji = if (uiState.isGpuEnabled) "🚀" else "💻",
                             checked = uiState.isGpuEnabled,
                             onCheckedChange = { viewModel.setGpuEnabled(it) },
-                            activeColor = AccentBlue
+                            activeColor = MaterialTheme.colorScheme.primary
                         )
                         StudioToggleButton(
                             text = "확대",
                             emoji = "🔍",
                             checked = uiState.isZoomEnabled,
                             onCheckedChange = { viewModel.toggleZoom() },
-                            activeColor = AccentPurple
+                            activeColor = MaterialTheme.colorScheme.secondary
                         )
                         StudioToggleButton(
                             text = "이동",
                             emoji = "↕️",
                             checked = uiState.isMoveEnabled,
                             onCheckedChange = { viewModel.toggleMove() },
-                            activeColor = AccentMagenta
+                            activeColor = MaterialTheme.colorScheme.primary
                         )
                         StudioToggleButton(
                             text = "프리뷰",
                             emoji = "📷",
                             checked = uiState.isPreviewVisible,
                             onCheckedChange = { viewModel.togglePreview() },
-                            activeColor = AccentCyan
+                            activeColor = MaterialTheme.colorScheme.tertiary
                         )
                     }
                 }
@@ -363,12 +353,12 @@ private fun StudioIconButton(
     emoji: String,
     text: String,
     onClick: () -> Unit,
-    accentColor: Color = ButtonDefaultColor
+    accentColor: Color = MaterialTheme.colorScheme.surfaceVariant
 ) {
     Button(
         onClick = onClick,
         colors = ButtonDefaults.buttonColors(
-            containerColor = accentColor.copy(alpha = 0.8f)
+            containerColor = accentColor
         ),
         shape = RoundedCornerShape(12.dp),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
@@ -384,7 +374,7 @@ private fun StudioIconButton(
         Spacer(modifier = Modifier.width(6.dp))
         Text(
             text = text,
-            color = TextPrimary,
+            color = MaterialTheme.colorScheme.onSurface,
             style = MaterialTheme.typography.labelMedium
         )
     }
@@ -398,7 +388,7 @@ private fun StudioToggleButton(
     onCheckedChange: (Boolean) -> Unit,
     activeColor: Color
 ) {
-    val backgroundColor = if (checked) activeColor.copy(alpha = 0.85f) else ButtonDefaultColor
+    val backgroundColor = if (checked) activeColor else MaterialTheme.colorScheme.surfaceVariant
 
     Surface(
         onClick = { onCheckedChange(!checked) },
@@ -418,7 +408,7 @@ private fun StudioToggleButton(
             )
             Text(
                 text = text,
-                color = if (checked) TextPrimary else TextSecondary,
+                color = if (checked) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.labelMedium
             )
         }
@@ -438,13 +428,13 @@ fun FileListDialog(
                 .fillMaxWidth()
                 .heightIn(max = 400.dp),
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = ControlPanelBackground)
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleLarge,
-                    color = TextPrimary,
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
 
@@ -456,10 +446,10 @@ fun FileListDialog(
                         Button(
                             onClick = { onFileSelected(file) },
                             modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = ButtonDefaultColor),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text(file, color = TextPrimary)
+                            Text(file, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -469,10 +459,10 @@ fun FileListDialog(
                 Button(
                     onClick = onDismiss,
                     modifier = Modifier.align(Alignment.End),
-                    colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                     shape = RoundedCornerShape(8.dp)
                 ) {
-                    Text("닫기", color = TextPrimary)
+                    Text("닫기", color = MaterialTheme.colorScheme.onPrimary)
                 }
             }
         }
@@ -490,7 +480,7 @@ private fun TrackingErrorDetailDialog(
                 .fillMaxWidth()
                 .padding(16.dp),
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = ControlPanelBackground)
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
         ) {
             Column(
                 modifier = Modifier.padding(20.dp)
@@ -498,20 +488,20 @@ private fun TrackingErrorDetailDialog(
                 Text(
                     text = "트래킹 에러 상세",
                     style = MaterialTheme.typography.titleLarge,
-                    color = TextPrimary
+                    color = MaterialTheme.colorScheme.onSurface
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = ButtonDefaultColor,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
                         text = errorMessage,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(12.dp)
                     )
                 }
@@ -521,10 +511,10 @@ private fun TrackingErrorDetailDialog(
                 Button(
                     onClick = onDismiss,
                     modifier = Modifier.align(Alignment.End),
-                    colors = ButtonDefaults.buttonColors(containerColor = AccentBlue),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                     shape = RoundedCornerShape(8.dp)
                 ) {
-                    Text("확인", color = TextPrimary)
+                    Text("확인", color = MaterialTheme.colorScheme.onPrimary)
                 }
             }
         }

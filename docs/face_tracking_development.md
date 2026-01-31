@@ -28,6 +28,7 @@
 18. [외부 모델 삭제 기능](#18-외부-모델-삭제-기능-2026-01-31-업데이트)
 19. [감정/모션 초기화 기능](#19-감정모션-초기화-기능-2026-01-31-업데이트)
 20. [스플래시/인트로 화면 구현](#20-스플래시인트로-화면-구현-2026-01-31-업데이트)
+21. [라이트/다크 모드 테마 적용](#21-라이트다크-모드-테마-적용-2026-01-31-업데이트)
 
 ---
 
@@ -1686,4 +1687,95 @@ NavHost(
 2. **유연한 커스터마이징**: Compose로 구현하여 애니메이션, 레이아웃 자유롭게 변경 가능
 3. **일관된 UX**: 시스템 스플래시 → 인트로 화면 → 메인 화면으로 자연스러운 전환
 4. **뒤로가기 처리**: `popUpTo(inclusive = true)`로 인트로 화면을 스택에서 제거하여 뒤로가기 시 앱 종료
+
+---
+
+## 21. 라이트/다크 모드 테마 적용 (2026-01-31 업데이트)
+
+### 배경
+- 기존 `StudioScreen`의 컨트롤 패널과 버튼들이 하드코딩된 다크 테마 색상만 사용
+- 시스템 라이트/다크 모드 전환 시 UI가 일관되지 않음
+- `ModelSelectScreen`의 모델 카드 색상도 Asset/External 모델에 따라 다르게 적용되어 있었음
+
+### 구현 내용
+
+#### 1. ModelSelectScreen 모델 카드 색상 통일
+
+기존에는 Asset 모델과 External 모델의 카드 배경색이 달랐으나, 모두 `primaryContainer`(연한 민트)로 통일:
+
+```kotlin
+// 변경 전
+colors = if (isDeleteMode && !isExternal) {
+    CardDefaults.cardColors(containerColor = surfaceVariant.copy(alpha = 0.5f))
+} else {
+    CardDefaults.cardColors()
+}
+
+// 변경 후
+colors = when {
+    isDeleteMode && !isExternal -> CardDefaults.cardColors(containerColor = surfaceVariant.copy(alpha = 0.5f))
+    else -> CardDefaults.cardColors(containerColor = primaryContainer)
+}
+```
+
+#### 2. StudioScreen MaterialTheme 적용
+
+하드코딩된 색상들을 `MaterialTheme.colorScheme`으로 교체:
+
+| 기존 하드코딩 색상 | MaterialTheme 색상 | 용도 |
+|------------------|-------------------|------|
+| `ControlPanelBackground` (#1A1A2E) | `surfaceContainer` | 컨트롤 패널 배경 |
+| `ButtonDefaultColor` (#2D2D44) | `surfaceVariant` | 비활성 버튼 배경 |
+| `AccentBlue` (#4A9FF5) | `primary` | 감정/GPU/이동 버튼 |
+| `AccentPurple` (#7C4DFF) | `secondary` | 모션/확대 버튼 |
+| `AccentCyan` (#00BCD4) | `tertiary` | 프리뷰 버튼 |
+| `TextPrimary` (#FFFFFF) | `onSurface`, `onPrimary` | 주요 텍스트 |
+| `TextSecondary` (#B0B0C3) | `onSurfaceVariant` | 보조 텍스트 |
+
+#### 3. 다이얼로그 색상 적용
+
+`FileListDialog`와 `TrackingErrorDetailDialog`도 MaterialTheme 색상 사용:
+
+```kotlin
+@Composable
+fun FileListDialog(...) {
+    Card(
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
+        )
+    ) {
+        // 제목: onSurface
+        // 버튼 배경: surfaceVariant
+        // 버튼 텍스트: onSurfaceVariant
+        // 닫기 버튼: primary / onPrimary
+    }
+}
+```
+
+### 테마 색상 매핑 (Theme.kt)
+
+| 색상 | 라이트 모드 | 다크 모드 |
+|------|------------|----------|
+| `primary` | Mint70 (#5BBFAA) | Mint80 (#7DD3C0) |
+| `primaryContainer` | Mint90 (#B2DFDB) | Mint30 (#005A4D) |
+| `secondary` | Teal40 (#007F8F) | Teal80 (#4DD0E1) |
+| `tertiary` | Coral40 (#994D4D) | Coral80 (#FFB4AB) |
+| `surface` | Neutral99 (#FBFDFA) | Neutral10 (#191C1B) |
+| `surfaceVariant` | NeutralVariant90 (#DBE5E0) | NeutralVariant30 (#3F4945) |
+| `surfaceContainer` | (자동 계산) | (자동 계산) |
+
+### 이점
+
+1. **코드 간소화**: 하드코딩된 색상 상수 제거, `MaterialTheme.colorScheme` 직접 사용
+2. **자동 테마 전환**: 시스템 라이트/다크 모드에 따라 자동으로 색상 변경
+3. **일관된 디자인**: 앱 전체에서 동일한 색상 시스템 사용
+4. **유지보수 용이**: 색상 변경 시 `Theme.kt`만 수정하면 전체 반영
+
+### 관련 파일
+
+**수정됨**
+| 파일 | 변경 내용 |
+|------|----------|
+| `ModelSelectScreen.kt` | 모델 카드 배경색 `primaryContainer`로 통일 |
+| `StudioScreen.kt` | 하드코딩 색상 제거, `MaterialTheme.colorScheme` 사용 |
 

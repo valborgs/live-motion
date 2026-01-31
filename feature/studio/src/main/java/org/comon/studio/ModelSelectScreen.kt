@@ -273,13 +273,19 @@ private fun ModelCard(
                 onLongClick = onLongClick
             ),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        colors = if (isDeleteMode && !isExternal) {
-            // 삭제 모드에서 Asset 모델은 비활성화 스타일
-            CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-            )
-        } else {
-            CardDefaults.cardColors()
+        colors = when {
+            isDeleteMode && !isExternal -> {
+                // 삭제 모드에서 Asset 모델은 비활성화 스타일
+                CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                )
+            }
+            else -> {
+                // 모든 모델 카드는 연한 민트 배경
+                CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            }
         }
     ) {
         Box(
@@ -298,7 +304,7 @@ private fun ModelCard(
                     color = if (isDeleteMode && !isExternal) {
                         MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                     } else {
-                        MaterialTheme.colorScheme.onSurface
+                        MaterialTheme.colorScheme.onPrimaryContainer
                     }
                 )
                 if (isExternal) {
