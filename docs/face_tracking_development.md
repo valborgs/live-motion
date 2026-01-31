@@ -27,6 +27,7 @@
 17. [외부 모델 가져오기 기능](#17-외부-모델-가져오기-기능-2026-01-30-업데이트)
 18. [외부 모델 삭제 기능](#18-외부-모델-삭제-기능-2026-01-31-업데이트)
 19. [감정/모션 초기화 기능](#19-감정모션-초기화-기능-2026-01-31-업데이트)
+20. [스플래시/인트로 화면 구현](#20-스플래시인트로-화면-구현-2026-01-31-업데이트)
 
 ---
 
@@ -1520,4 +1521,169 @@ is StudioViewModel.DialogState.Motion -> {
 | `LAppMinimumModel.java` | `clearExpression()`, `clearMotion()` 메서드 추가 |
 | `LAppMinimumLive2DManager.java` | `clearExpression()`, `clearMotion()` wrapper 추가 |
 | `StudioScreen.kt` | 다이얼로그에 "초기화" 아이템 추가 |
+
+---
+
+## 20. 스플래시/인트로 화면 구현 (2026-01-31 업데이트)
+
+### 배경
+- 앱 시작 시 브랜딩을 위한 Cubism 로고 표시 필요
+- 사용자에게 앱이 로딩 중임을 시각적으로 알려주는 인트로 화면 필요
+
+### 초기 시도: Android Splash Screen API
+
+Android 12+의 Splash Screen API를 사용하여 구현 시도:
+
+```kotlin
+// MainActivity.kt
+override fun onCreate(savedInstanceState: Bundle?) {
+    installSplashScreen()
+    super.onCreate(savedInstanceState)
+    // ...
+}
+```
+
+```xml
+<!-- themes.xml -->
+<style name="Theme.LiveMotion.Splash" parent="Theme.SplashScreen">
+    <item name="windowSplashScreenBackground">@android:color/white</item>
+    <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
+    <item name="postSplashScreenTheme">@style/Theme.LiveMotion</item>
+</style>
+```
+
+**문제점**: Splash Screen API는 아이콘을 원형으로 마스킹하여 표시하기 때문에, 가로로 긴 Cubism 로고가 잘려서 제대로 보이지 않음.
+
+### 최종 구현: CubismIntroScreen Composable
+
+Splash Screen API 대신 별도의 Compose 화면으로 인트로 구현:
+
+#### 1. NavKey.Intro 추가
+
+```kotlin
+// NavKey.kt
+@Serializable
+sealed interface NavKey {
+    @Serializable
+    data object Intro : NavKey  // 신규 추가
+
+    @Serializable
+    data object ModelSelect : NavKey
+    // ...
+}
+```
+
+#### 2. CubismIntroScreen 구현
+
+```kotlin
+// CubismIntroScreen.kt
+@Composable
+fun CubismIntroScreen(
+    onTimeout: () -> Unit
+) {
+    LaunchedEffect(Unit) {
+        delay(1000L)  // 1초 대기
+        onTimeout()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White),
+        contentAlignment = Alignment.Center
+    ) {
+        Image(
+            painter = painterResource(id = R.drawable.cubism_logo_orange),
+            contentDescription = "Cubism Logo",
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 48.dp)
+        )
+    }
+}
+```
+
+#### 3. Navigation 설정
+
+```kotlin
+// MainActivity.kt
+NavHost(
+    navController = navController,
+    startDestination = NavKey.Intro  // Intro로 시작
+) {
+    composable<NavKey.Intro> {
+        CubismIntroScreen(
+            onTimeout = {
+                navController.navigate(NavKey.ModelSelect) {
+                    popUpTo(NavKey.Intro) { inclusive = true }  // 뒤로가기 스택에서 제거
+                }
+            }
+        )
+    }
+    composable<NavKey.ModelSelect> { /* ... */ }
+    composable<NavKey.Studio> { /* ... */ }
+}
+```
+
+#### 4. 시스템 스플래시 테마 간소화
+
+시스템 스플래시는 아이콘 없이 흰색 배경만 표시:
+
+```xml
+<!-- themes.xml -->
+<style name="Theme.LiveMotion.Splash" parent="Theme.SplashScreen">
+    <item name="windowSplashScreenBackground">@android:color/white</item>
+    <item name="postSplashScreenTheme">@style/Theme.LiveMotion</item>
+    <!-- 아이콘 제거 -->
+</style>
+```
+
+### 화면 전환 흐름
+
+```
+앱 시작
+    │
+    ▼
+┌─────────────────────────┐
+│   시스템 스플래시        │  (흰색 배경, 아이콘 없음)
+│   (매우 짧게 표시)       │
+└───────────┬─────────────┘
+            │
+            ▼
+┌─────────────────────────┐
+│   CubismIntroScreen     │  (1초간 로고 표시)
+│   - 흰색 배경           │
+│   - Cubism 로고 중앙    │
+└───────────┬─────────────┘
+            │ 1초 후 자동 전환
+            ▼
+┌─────────────────────────┐
+│   ModelSelectScreen     │  (뒤로가기 시 앱 종료)
+└─────────────────────────┘
+```
+
+### 관련 파일
+
+**신규 생성**
+| 파일 | 위치 | 설명 |
+|------|------|------|
+| `CubismIntroScreen.kt` | feature:studio | 인트로 화면 Composable |
+| `cubism_logo_orange.png` | feature:studio/res/drawable | 로고 이미지 (복사) |
+
+**수정됨**
+| 파일 | 변경 내용 |
+|------|----------|
+| `libs.versions.toml` | `splashscreen = "1.0.1"` 버전 추가 |
+| `app/build.gradle.kts` | `androidx-core-splashscreen` 의존성 추가 |
+| `themes.xml` | `Theme.LiveMotion.Splash` 스타일 추가 |
+| `AndroidManifest.xml` | MainActivity 테마를 `Theme.LiveMotion.Splash`로 변경 |
+| `MainActivity.kt` | `installSplashScreen()` 호출, `NavKey.Intro` composable 추가 |
+| `NavKey.kt` | `NavKey.Intro` data object 추가 |
+
+### 이점
+
+1. **로고 전체 표시**: 원형 마스킹 없이 가로로 긴 로고를 온전히 표시
+2. **유연한 커스터마이징**: Compose로 구현하여 애니메이션, 레이아웃 자유롭게 변경 가능
+3. **일관된 UX**: 시스템 스플래시 → 인트로 화면 → 메인 화면으로 자연스러운 전환
+4. **뒤로가기 처리**: `popUpTo(inclusive = true)`로 인트로 화면을 스택에서 제거하여 뒤로가기 시 앱 종료
 

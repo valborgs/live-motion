@@ -5,6 +5,9 @@ import kotlinx.serialization.Serializable
 @Serializable
 sealed interface NavKey {
     @Serializable
+    data object Intro : NavKey
+
+    @Serializable
     data object ModelSelect : NavKey
 
     /**

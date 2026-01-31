@@ -11,6 +11,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -33,6 +34,7 @@ import org.comon.domain.model.ExternalModel
 import org.comon.domain.model.ModelSource
 import org.comon.live2d.LAppMinimumDelegate
 import org.comon.navigation.NavKey
+import org.comon.studio.CubismIntroScreen
 import org.comon.studio.ModelSelectScreen
 import org.comon.studio.StudioScreen
 import org.comon.ui.theme.LiveMotionTheme
@@ -40,6 +42,7 @@ import org.comon.ui.theme.LiveMotionTheme
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
@@ -113,8 +116,17 @@ class MainActivity : ComponentActivity() {
 
             NavHost(
                 navController = navController,
-                startDestination = NavKey.ModelSelect
+                startDestination = NavKey.Intro
             ) {
+                composable<NavKey.Intro> {
+                    CubismIntroScreen(
+                        onTimeout = {
+                            navController.navigate(NavKey.ModelSelect) {
+                                popUpTo(NavKey.Intro) { inclusive = true }
+                            }
+                        }
+                    )
+                }
                 composable<NavKey.ModelSelect> { backStackEntry ->
                     // savedStateHandle에서 에러 메시지 읽기
                     val errorMessage by backStackEntry.savedStateHandle

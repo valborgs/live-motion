@@ -2,4 +2,9 @@
 <resources>
 
     <style name="Theme.LiveMotion" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <style name="Theme.LiveMotion.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@android:color/white</item>
+        <item name="postSplashScreenTheme">@style/Theme.LiveMotion</item>
+    </style>
 </resources>
