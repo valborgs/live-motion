@@ -25,6 +25,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -178,7 +180,20 @@ class MainActivity : ComponentActivity() {
                         }
                     )
                 }
-                composable<NavKey.Studio> { backStackEntry ->
+                composable<NavKey.Studio>(
+                    enterTransition = {
+                        slideInHorizontally(initialOffsetX = { it })
+                    },
+                    exitTransition = {
+                        slideOutHorizontally(targetOffsetX = { -it })
+                    },
+                    popEnterTransition = {
+                        slideInHorizontally(initialOffsetX = { -it })
+                    },
+                    popExitTransition = {
+                        slideOutHorizontally(targetOffsetX = { it })
+                    }
+                ) { backStackEntry ->
                     val studio = backStackEntry.toRoute<NavKey.Studio>()
                     // NavKey에서 ModelSource 복원 (로컬 변수로 캡처하여 스마트 캐스트 가능하게 함)
                     val cachePath = studio.cachePath
