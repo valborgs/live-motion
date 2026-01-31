@@ -3,6 +3,7 @@ package org.comon.common.di
 import org.comon.common.asset.ModelAssetReader
 import org.comon.domain.repository.IExternalModelRepository
 import org.comon.domain.repository.IModelRepository
+import org.comon.domain.usecase.DeleteExternalModelsUseCase
 import org.comon.domain.usecase.GetAllModelsUseCase
 import org.comon.domain.usecase.GetLive2DModelsUseCase
 import org.comon.domain.usecase.GetModelMetadataUseCase
@@ -28,6 +29,7 @@ interface AppContainer {
     val getModelMetadataUseCase: GetModelMetadataUseCase
     val getAllModelsUseCase: GetAllModelsUseCase
     val importExternalModelUseCase: ImportExternalModelUseCase
+    val deleteExternalModelsUseCase: DeleteExternalModelsUseCase
 
     /**
      * MapFacePoseUseCase는 상태를 가지므로 매번 새 인스턴스를 생성합니다.

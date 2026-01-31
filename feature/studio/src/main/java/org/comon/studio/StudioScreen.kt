@@ -62,12 +62,7 @@ fun StudioScreen(
 
     // 초기화
     LaunchedEffect(modelSource) {
-        // Asset 모델일 경우에만 메타데이터 로드 시도
-        val modelId = when (modelSource) {
-            is ModelSource.Asset -> modelSource.modelId
-            is ModelSource.External -> null // 외부 모델은 메타데이터 로드 스킵
-        }
-        viewModel.initialize(lifecycleOwner, modelId)
+        viewModel.initialize(lifecycleOwner, modelSource)
     }
 
     // 실시간 트래킹 데이터 (별도 collect)

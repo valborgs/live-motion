@@ -1,20 +1,25 @@
 package org.comon.studio
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -39,7 +44,8 @@ fun ModelSelectScreen(
     val viewModel: ModelSelectViewModel = viewModel(
         factory = ModelSelectViewModel.Factory(
             container.getAllModelsUseCase,
-            container.importExternalModelUseCase
+            container.importExternalModelUseCase,
+            container.deleteExternalModelsUseCase
         )
     )
 
@@ -53,6 +59,9 @@ fun ModelSelectScreen(
     // 에러 상세 다이얼로그 상태
     var showErrorDetailDialog by remember { mutableStateOf(false) }
     var currentErrorDetail by remember { mutableStateOf<String?>(null) }
+
+    // 삭제 확인 다이얼로그 상태
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
     // 폴더 선택기 런처
     val folderPickerLauncher = rememberLauncherForActivityResult(
@@ -102,22 +111,67 @@ fun ModelSelectScreen(
         }
     }
 
+    // 삭제 모드에서 뒤로가기 처리
+    BackHandler(enabled = uiState.isDeleteMode) {
+        viewModel.exitDeleteMode()
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("캐릭터 선택", fontWeight = FontWeight.Bold) }
-            )
+            if (uiState.isDeleteMode) {
+                // 삭제 모드 앱바
+                TopAppBar(
+                    title = {
+                        Text(
+                            "${uiState.selectedModelIds.size}개 선택됨",
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { viewModel.exitDeleteMode() }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "삭제 모드 종료"
+                            )
+                        }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = { showDeleteConfirmDialog = true },
+                            enabled = uiState.selectedModelIds.isNotEmpty()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "선택한 모델 삭제",
+                                tint = if (uiState.selectedModelIds.isNotEmpty()) {
+                                    Color(0xFFE53935)
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                }
+                            )
+                        }
+                    }
+                )
+            } else {
+                // 일반 모드 앱바
+                TopAppBar(
+                    title = { Text("캐릭터 선택", fontWeight = FontWeight.Bold) }
+                )
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { folderPickerLauncher.launch(null) },
-                containerColor = MaterialTheme.colorScheme.primary
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "모델 가져오기"
-                )
+            // 삭제 모드가 아닐 때만 FAB 표시
+            if (!uiState.isDeleteMode) {
+                FloatingActionButton(
+                    onClick = { folderPickerLauncher.launch(null) },
+                    containerColor = MaterialTheme.colorScheme.primary
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "모델 가져오기"
+                    )
+                }
             }
         }
     ) { paddingValues ->
@@ -143,7 +197,24 @@ fun ModelSelectScreen(
                     items(uiState.models) { modelSource ->
                         ModelCard(
                             modelSource = modelSource,
-                            onClick = { onModelSelected(modelSource) }
+                            isDeleteMode = uiState.isDeleteMode,
+                            isSelected = modelSource.id in uiState.selectedModelIds,
+                            onClick = {
+                                if (uiState.isDeleteMode) {
+                                    // 삭제 모드에서 외부 모델만 선택 가능
+                                    if (modelSource is ModelSource.External) {
+                                        viewModel.toggleModelSelection(modelSource.id)
+                                    }
+                                } else {
+                                    onModelSelected(modelSource)
+                                }
+                            },
+                            onLongClick = {
+                                // 외부 모델만 길게 눌러서 삭제 모드 진입 가능
+                                if (modelSource is ModelSource.External && !uiState.isDeleteMode) {
+                                    viewModel.enterDeleteMode(modelSource.id)
+                                }
+                            }
                         )
                     }
                 }
@@ -163,25 +234,59 @@ fun ModelSelectScreen(
             onDismiss = { showErrorDetailDialog = false }
         )
     }
+
+    // 삭제 확인 다이얼로그
+    if (showDeleteConfirmDialog) {
+        DeleteConfirmDialog(
+            count = uiState.selectedModelIds.size,
+            onConfirm = {
+                showDeleteConfirmDialog = false
+                viewModel.deleteSelectedModels()
+            },
+            onDismiss = { showDeleteConfirmDialog = false }
+        )
+    }
+
+    // 삭제 진행 다이얼로그
+    if (uiState.isDeleting) {
+        DeletingProgressDialog()
+    }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ModelCard(
     modelSource: ModelSource,
-    onClick: () -> Unit
+    isDeleteMode: Boolean,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
 ) {
+    val isExternal = modelSource is ModelSource.External
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(1f)
-            .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        colors = if (isDeleteMode && !isExternal) {
+            // 삭제 모드에서 Asset 모델은 비활성화 스타일
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            )
+        } else {
+            CardDefaults.cardColors()
+        }
     ) {
         Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
+            modifier = Modifier.fillMaxSize()
         ) {
             Column(
+                modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
@@ -189,9 +294,14 @@ private fun ModelCard(
                     text = modelSource.displayName,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Medium,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    color = if (isDeleteMode && !isExternal) {
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    }
                 )
-                if (modelSource is ModelSource.External) {
+                if (isExternal) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "외부 모델",
@@ -199,6 +309,20 @@ private fun ModelCard(
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
+            }
+
+            // 삭제 모드에서 외부 모델에만 체크박스 표시
+            if (isDeleteMode && isExternal) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onClick() },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp),
+                    colors = CheckboxDefaults.colors(
+                        checkedColor = Color(0xFFE53935)
+                    )
+                )
             }
         }
     }
@@ -285,6 +409,68 @@ private fun ErrorDetailDialog(
                 ) {
                     Text("확인")
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DeleteConfirmDialog(
+    count: Int,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "모델 삭제",
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Text("${count}개의 모델을 삭제하시겠습니까?")
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("취소")
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onConfirm,
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = Color(0xFFE53935)
+                )
+            ) {
+                Text("삭제")
+            }
+        }
+    )
+}
+
+@Composable
+private fun DeletingProgressDialog() {
+    Dialog(onDismissRequest = { /* 취소 불가 */ }) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(24.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    strokeWidth = 2.dp
+                )
+                Text(
+                    text = "삭제 중...",
+                    style = MaterialTheme.typography.bodyLarge
+                )
             }
         }
     }

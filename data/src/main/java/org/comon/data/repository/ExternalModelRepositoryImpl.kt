@@ -4,8 +4,10 @@ import android.net.Uri
 import org.comon.domain.common.DomainException
 import org.comon.domain.common.Result
 import org.comon.domain.model.ExternalModel
+import org.comon.domain.model.Live2DModelInfo
 import org.comon.domain.model.ModelValidationResult
 import org.comon.domain.repository.IExternalModelRepository
+import java.io.File
 import org.comon.storage.ExternalModelMetadataStore
 import org.comon.storage.ModelCacheManager
 
@@ -158,6 +160,43 @@ class ExternalModelRepositoryImpl(
                 )
             )
         }
+    }
+
+    override suspend fun getModelMetadata(modelId: String): Result<Live2DModelInfo> {
+        if (!cacheManager.isCached(modelId)) {
+            return Result.error(DomainException.ModelNotFoundError(modelId))
+        }
+
+        val cacheDir = cacheManager.getModelCacheDir(modelId)
+
+        // expressions 폴더 찾기 (대소문자 무시)
+        val expressionsFolder = cacheDir.listFiles()
+            ?.firstOrNull { it.isDirectory && it.name.equals("expressions", ignoreCase = true) }
+
+        // motions 폴더 찾기 (대소문자 무시)
+        val motionsFolder = cacheDir.listFiles()
+            ?.firstOrNull { it.isDirectory && it.name.equals("motions", ignoreCase = true) }
+
+        // 파일 목록 조회
+        val expressionFiles = expressionsFolder?.listFiles()
+            ?.filter { it.isFile && it.name.endsWith(".exp3.json", ignoreCase = true) }
+            ?.map { it.name }
+            ?: emptyList()
+
+        val motionFiles = motionsFolder?.listFiles()
+            ?.filter { it.isFile && it.name.endsWith(".motion3.json", ignoreCase = true) }
+            ?.map { it.name }
+            ?: emptyList()
+
+        return Result.success(
+            Live2DModelInfo(
+                modelId = modelId,
+                expressionsFolder = expressionsFolder?.name,
+                motionsFolder = motionsFolder?.name,
+                expressionFiles = expressionFiles,
+                motionFiles = motionFiles
+            )
+        )
     }
 
     override fun getCachePath(modelId: String): String? {

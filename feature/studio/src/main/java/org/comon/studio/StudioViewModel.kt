@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import org.comon.domain.common.DomainException
 import org.comon.domain.model.FacePose
 import org.comon.domain.model.Live2DParams
+import org.comon.domain.model.ModelSource
 import org.comon.domain.usecase.GetModelMetadataUseCase
 import org.comon.domain.usecase.MapFacePoseUseCase
 import org.comon.tracking.FaceTracker
@@ -85,7 +86,7 @@ class StudioViewModel(
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 초기화
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    fun initialize(lifecycleOwner: LifecycleOwner, modelId: String?) {
+    fun initialize(lifecycleOwner: LifecycleOwner, modelSource: ModelSource) {
         if (faceTracker == null) {
             faceTracker = faceTrackerFactory.create(lifecycleOwner).also { tracker ->
                 // FaceTracker의 StateFlow를 ViewModel로 전파
@@ -127,26 +128,28 @@ class StudioViewModel(
             }
         }
 
-        // Asset 모델일 경우에만 메타데이터 로드
-        modelId?.let { loadModelMetadata(it) }
+        // 메타데이터 로드
+        loadModelMetadata(modelSource)
     }
 
-    private fun loadModelMetadata(modelId: String) {
-        getModelMetadataUseCase(modelId)
-            .onSuccess { metadata ->
-                _uiState.update {
-                    it.copy(
-                        expressionsFolder = metadata.expressionsFolder,
-                        motionsFolder = metadata.motionsFolder,
-                        expressionFiles = metadata.expressionFiles,
-                        motionFiles = metadata.motionFiles,
-                        domainError = null
-                    )
+    private fun loadModelMetadata(modelSource: ModelSource) {
+        viewModelScope.launch {
+            getModelMetadataUseCase(modelSource)
+                .onSuccess { metadata ->
+                    _uiState.update {
+                        it.copy(
+                            expressionsFolder = metadata.expressionsFolder,
+                            motionsFolder = metadata.motionsFolder,
+                            expressionFiles = metadata.expressionFiles,
+                            motionFiles = metadata.motionFiles,
+                            domainError = null
+                        )
+                    }
                 }
-            }
-            .onError { error ->
-                _uiState.update { it.copy(domainError = error) }
-            }
+                .onError { error ->
+                    _uiState.update { it.copy(domainError = error) }
+                }
+        }
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

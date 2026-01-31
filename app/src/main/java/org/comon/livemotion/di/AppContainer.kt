@@ -7,6 +7,7 @@ import org.comon.data.repository.ExternalModelRepositoryImpl
 import org.comon.data.repository.ModelRepositoryImpl
 import org.comon.domain.repository.IExternalModelRepository
 import org.comon.domain.repository.IModelRepository
+import org.comon.domain.usecase.DeleteExternalModelsUseCase
 import org.comon.domain.usecase.GetAllModelsUseCase
 import org.comon.domain.usecase.GetLive2DModelsUseCase
 import org.comon.domain.usecase.GetModelMetadataUseCase
@@ -88,7 +89,7 @@ class AppContainerImpl(private val application: Application) : AppContainer {
     }
 
     override val getModelMetadataUseCase: GetModelMetadataUseCase by lazy {
-        GetModelMetadataUseCase(modelRepository)
+        GetModelMetadataUseCase(modelRepository, externalModelRepository)
     }
 
     override val getAllModelsUseCase: GetAllModelsUseCase by lazy {
@@ -97,6 +98,10 @@ class AppContainerImpl(private val application: Application) : AppContainer {
 
     override val importExternalModelUseCase: ImportExternalModelUseCase by lazy {
         ImportExternalModelUseCase(externalModelRepository)
+    }
+
+    override val deleteExternalModelsUseCase: DeleteExternalModelsUseCase by lazy {
+        DeleteExternalModelsUseCase(externalModelRepository)
     }
 
     /**

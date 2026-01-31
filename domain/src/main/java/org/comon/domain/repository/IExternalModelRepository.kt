@@ -2,6 +2,7 @@ package org.comon.domain.repository
 
 import org.comon.domain.common.Result
 import org.comon.domain.model.ExternalModel
+import org.comon.domain.model.Live2DModelInfo
 import org.comon.domain.model.ModelValidationResult
 
 /**
@@ -47,6 +48,13 @@ interface IExternalModelRepository {
      * @return 성공 또는 에러
      */
     suspend fun deleteModel(modelId: String): Result<Unit>
+
+    /**
+     * 외부 모델의 메타데이터(expressions/motions 폴더 정보)를 조회합니다.
+     * @param modelId 모델 ID
+     * @return 모델 메타데이터 또는 에러
+     */
+    suspend fun getModelMetadata(modelId: String): Result<Live2DModelInfo>
 
     /**
      * 외부 모델의 캐시 경로를 반환합니다 (Live2D 로딩용).

@@ -24,6 +24,8 @@
 14. [에러 처리 시스템 구축](#14-에러-처리-시스템-구축-2026-01-28-업데이트)
 15. [수동 의존성 주입(Manual DI) 리팩토링](#15-수동-의존성-주입manual-di-리팩토링-2026-01-28-업데이트)
 16. [Clean Architecture 리팩터링](#16-clean-architecture-리팩터링-2026-01-29-업데이트)
+17. [외부 모델 가져오기 기능](#17-외부-모델-가져오기-기능-2026-01-30-업데이트)
+18. [외부 모델 삭제 기능](#18-외부-모델-삭제-기능-2026-01-31-업데이트)
 
 ---
 
@@ -1094,4 +1096,285 @@ graph TD
 2. **관심사 분리**: 데이터 접근, 비즈니스 로직, UI가 명확히 분리
 3. **일관된 에러 처리**: `Result<T>` 패턴으로 모든 레이어에서 동일한 방식의 에러 처리
 4. **유지보수성**: 데이터 소스 변경 시 Repository 구현체만 수정
+
+---
+
+## 17. 외부 모델 가져오기 기능 (2026-01-30 업데이트)
+
+### 배경
+- 앱에 번들된 Asset 모델 외에도 사용자가 직접 Live2D 모델을 가져와서 사용하고 싶은 요구사항
+- Android의 Scoped Storage 정책으로 인해 SAF(Storage Access Framework)를 통한 파일 접근 필요
+
+### 구현 내용
+
+#### 1. 외부 모델 저장소 구조
+
+**ModelCacheManager**: SAF로 선택한 폴더를 내부 캐시로 복사
+```kotlin
+class ModelCacheManager(private val context: Context) {
+    // 캐시 구조: /cache/external_models/{model_id}/
+    fun copyToCache(folderUri: Uri, modelId: String, onProgress: (Float) -> Unit): Long
+    fun validateModelFolder(folderUri: Uri): ModelValidationResult
+    fun deleteCache(modelId: String): Boolean
+}
+```
+
+**ExternalModelMetadataStore**: 가져온 모델의 메타데이터 관리 (SharedPreferences + JSON)
+```kotlin
+data class ModelMetadata(
+    val id: String,
+    val name: String,
+    val originalUri: String,
+    val modelJsonName: String,
+    val sizeBytes: Long,
+    val cachedAt: Long,
+    val lastAccessedAt: Long
+)
+```
+
+#### 2. Domain Layer 확장
+
+**ModelSource sealed class**: Asset과 External 모델을 구분
+```kotlin
+sealed class ModelSource {
+    abstract val id: String
+    abstract val displayName: String
+
+    data class Asset(val modelId: String) : ModelSource()
+    data class External(val model: ExternalModel) : ModelSource()
+}
+```
+
+**IExternalModelRepository**: 외부 모델 관리 인터페이스
+```kotlin
+interface IExternalModelRepository {
+    suspend fun listExternalModels(): Result<List<ExternalModel>>
+    suspend fun validateModel(folderUri: String): Result<ModelValidationResult>
+    suspend fun importModel(folderUri: String, onProgress: (Float) -> Unit): Result<ExternalModel>
+    suspend fun deleteModel(modelId: String): Result<Unit>
+    suspend fun getModelMetadata(modelId: String): Result<Live2DModelInfo>
+}
+```
+
+#### 3. UseCase 추가
+
+**GetAllModelsUseCase**: Asset + External 모델 통합 조회
+```kotlin
+class GetAllModelsUseCase(
+    private val modelRepository: IModelRepository,
+    private val externalModelRepository: IExternalModelRepository
+) {
+    suspend operator fun invoke(): Result<List<ModelSource>>
+}
+```
+
+**ImportExternalModelUseCase**: 외부 모델 검증 후 캐시로 복사
+```kotlin
+class ImportExternalModelUseCase(
+    private val externalModelRepository: IExternalModelRepository
+) {
+    suspend operator fun invoke(folderUri: String, onProgress: (Float) -> Unit): Result<ExternalModel>
+}
+```
+
+#### 4. UI 구현
+
+**ModelSelectScreen 개선**:
+- FAB 버튼으로 폴더 선택기 실행
+- 가져오기 진행률 다이얼로그 표시
+- 외부 모델은 "외부 모델" 라벨 표시
+
+**Live2D 로더 확장**:
+- `LAppMinimumPal`: Asset/External 파일 로딩 분기 처리
+- `LAppMinimumLive2DManager.loadExternalModel()`: 캐시 경로에서 모델 로드
+
+### 관련 파일
+
+**신규 생성**
+| 파일 | 위치 | 설명 |
+|------|------|------|
+| `ModelCacheManager.kt` | core:storage | 외부 모델 캐시 관리 |
+| `ExternalModelMetadataStore.kt` | core:storage | 메타데이터 저장소 |
+| `SAFPermissionManager.kt` | core:storage | SAF 권한 관리 |
+| `ExternalModel.kt` | domain/model | 외부 모델 데이터 클래스 |
+| `ModelSource.kt` | domain/model | 모델 소스 sealed class |
+| `ModelValidationResult.kt` | domain/model | 검증 결과 |
+| `IExternalModelRepository.kt` | domain/repository | Repository 인터페이스 |
+| `ExternalModelRepositoryImpl.kt` | data/repository | Repository 구현체 |
+| `GetAllModelsUseCase.kt` | domain/usecase | 통합 모델 조회 |
+| `ImportExternalModelUseCase.kt` | domain/usecase | 모델 가져오기 |
+
+---
+
+## 18. 외부 모델 삭제 기능 (2026-01-31 업데이트)
+
+### 배경
+- 가져온 외부 모델을 삭제하는 기능 필요
+- Asset 모델은 앱에 번들되어 있으므로 삭제 불가
+- 다중 선택 삭제 지원 필요
+
+### 구현 내용
+
+#### 1. 삭제 모드 UI
+
+**길게 눌러서 삭제 모드 진입**:
+```kotlin
+ModelCard(
+    modifier = Modifier.combinedClickable(
+        onClick = { /* 일반 클릭 */ },
+        onLongClick = {
+            if (modelSource is ModelSource.External) {
+                viewModel.enterDeleteMode(modelSource.id)
+            }
+        }
+    )
+)
+```
+
+**삭제 모드 앱바**:
+- 왼쪽: 뒤로가기 버튼 (삭제 모드 종료)
+- 중앙: "N개 선택됨" 타이틀
+- 오른쪽: 빨간색 휴지통 버튼
+
+**선택 UI**:
+- 외부 모델만 체크박스 표시
+- Asset 모델은 비활성화 스타일로 표시 (선택 불가)
+
+#### 2. 삭제 확인 다이얼로그
+
+```kotlin
+@Composable
+private fun DeleteConfirmDialog(
+    count: Int,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        title = { Text("모델 삭제") },
+        text = { Text("${count}개의 모델을 삭제하시겠습니까?") },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("취소") } },
+        dismissButton = { TextButton(onClick = onConfirm) { Text("삭제", color = Red) } }
+    )
+}
+```
+
+#### 3. 삭제 진행 다이얼로그
+
+```kotlin
+@Composable
+private fun DeletingProgressDialog() {
+    Dialog(onDismissRequest = { /* 취소 불가 */ }) {
+        Row {
+            CircularProgressIndicator()
+            Text("삭제 중...")
+        }
+    }
+}
+```
+
+#### 4. ViewModel 상태 관리
+
+```kotlin
+data class UiState(
+    // ... 기존 필드
+    val isDeleteMode: Boolean = false,
+    val selectedModelIds: Set<String> = emptySet(),
+    val isDeleting: Boolean = false
+)
+
+// 삭제 모드 관련 메서드
+fun enterDeleteMode(initialModelId: String)
+fun exitDeleteMode()
+fun toggleModelSelection(modelId: String)
+fun deleteSelectedModels()
+```
+
+#### 5. GetModelMetadataUseCase 통합
+
+기존에 Asset 모델과 External 모델의 메타데이터 조회가 분리되어 있었으나, 하나의 UseCase로 통합:
+
+```kotlin
+class GetModelMetadataUseCase(
+    private val modelRepository: IModelRepository,
+    private val externalModelRepository: IExternalModelRepository
+) {
+    suspend operator fun invoke(modelSource: ModelSource): Result<Live2DModelInfo> {
+        return when (modelSource) {
+            is ModelSource.Asset -> modelRepository.getModelMetadata(modelSource.modelId)
+            is ModelSource.External -> externalModelRepository.getModelMetadata(modelSource.model.id)
+        }
+    }
+}
+```
+
+**통합 이유**:
+- Asset 모델: `AssetManager`로 assets 폴더 접근
+- External 모델: `File` API로 캐시 디렉토리 접근
+- 저장소 접근 방식이 다르므로 Repository는 분리하되, UseCase에서 `ModelSource`로 분기 처리
+
+#### 6. 외부 모델 expressions/motions 폴더 인식
+
+**ExternalModelRepositoryImpl.getModelMetadata()**:
+```kotlin
+override suspend fun getModelMetadata(modelId: String): Result<Live2DModelInfo> {
+    val cacheDir = cacheManager.getModelCacheDir(modelId)
+
+    // 대소문자 무시하고 폴더 탐색
+    val expressionsFolder = cacheDir.listFiles()
+        ?.firstOrNull { it.isDirectory && it.name.equals("expressions", ignoreCase = true) }
+
+    val motionsFolder = cacheDir.listFiles()
+        ?.firstOrNull { it.isDirectory && it.name.equals("motions", ignoreCase = true) }
+
+    // 파일 목록 조회
+    val expressionFiles = expressionsFolder?.listFiles()
+        ?.filter { it.name.endsWith(".exp3.json", ignoreCase = true) }
+        ?.map { it.name } ?: emptyList()
+
+    val motionFiles = motionsFolder?.listFiles()
+        ?.filter { it.name.endsWith(".motion3.json", ignoreCase = true) }
+        ?.map { it.name } ?: emptyList()
+
+    return Result.success(Live2DModelInfo(...))
+}
+```
+
+### 에러 처리
+
+**Repository 레벨**:
+```kotlin
+override suspend fun deleteModel(modelId: String): Result<Unit> {
+    return try {
+        cacheManager.deleteCache(modelId)
+        metadataStore.deleteModel(modelId)
+        Result.success(Unit)
+    } catch (e: Exception) {
+        Result.error(DomainException.ExternalModelException.CacheOperationFailed(...))
+    }
+}
+```
+
+**UseCase 레벨**: 첫 번째 에러 발생 시 중단하고 에러 반환
+
+**ViewModel 레벨**: `isDeleting = false` 설정 후 에러 메시지 표시
+
+### 관련 파일
+
+**신규 생성**
+| 파일 | 위치 | 설명 |
+|------|------|------|
+| `DeleteExternalModelsUseCase.kt` | domain/usecase | 다중 모델 삭제 |
+
+**수정됨**
+| 파일 | 변경 내용 |
+|------|----------|
+| `IExternalModelRepository.kt` | `getModelMetadata()` 메서드 추가 |
+| `ExternalModelRepositoryImpl.kt` | `getModelMetadata()` 구현 |
+| `GetModelMetadataUseCase.kt` | Asset/External 통합, `ModelSource` 파라미터 |
+| `ModelSelectViewModel.kt` | 삭제 모드 상태 및 메서드 추가 |
+| `ModelSelectScreen.kt` | 삭제 모드 UI, 다이얼로그 추가 |
+| `StudioViewModel.kt` | `initialize(modelSource)` 시그니처 변경 |
+| `StudioScreen.kt` | ViewModel 초기화 수정 |
+| `AppContainer.kt` | `deleteExternalModelsUseCase` 추가 |
+| `AppContainerImpl.kt` | UseCase 구현 추가 |
 
