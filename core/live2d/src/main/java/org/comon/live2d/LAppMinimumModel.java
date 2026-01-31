@@ -273,6 +273,26 @@ public class LAppMinimumModel extends CubismUserModel {
     }
 
     /**
+     * Clear all active motions, returning the model to its idle state.
+     * Resets all parameters to their default values.
+     */
+    public void clearMotion() {
+        if (motionManager != null) {
+            motionManager.stopAllMotions();
+        }
+        // 모든 파라미터를 기본값으로 리셋
+        if (model != null) {
+            int parameterCount = model.getParameterCount();
+            for (int i = 0; i < parameterCount; i++) {
+                float defaultValue = model.getParameterDefaultValue(i);
+                model.setParameterValue(i, defaultValue);
+            }
+            // 리셋된 상태를 저장하여 다음 프레임의 loadParameters()에서 유지되도록 함
+            model.saveParameters();
+        }
+    }
+
+    /**
      * Start an expression via a file path (relative to the model directory).
      *
      * @param fileName The name of the expression file (e.g., "expressions/my_expression.exp3.json")
@@ -303,6 +323,15 @@ public class LAppMinimumModel extends CubismUserModel {
             return expressionManager.startMotionPriority(motion, LAppDefine.Priority.FORCE.getPriority());
         }
         return -1;
+    }
+
+    /**
+     * Clear all active expressions, returning the model to its default state.
+     */
+    public void clearExpression() {
+        if (expressionManager != null) {
+            expressionManager.stopAllMotions();
+        }
     }
 
     public void draw(CubismMatrix44 matrix) {

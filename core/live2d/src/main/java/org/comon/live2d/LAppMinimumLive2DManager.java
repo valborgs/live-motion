@@ -221,12 +221,30 @@ public class LAppMinimumLive2DManager {
     }
 
     /**
+     * Clear all active motions, returning the model to its idle state.
+     */
+    public void clearMotion() {
+        if (model != null) {
+            model.clearMotion();
+        }
+    }
+
+    /**
      * Start an expression by file name.
      * @param fileName relative path to expression file
      */
     public void startExpression(String fileName) {
         if (model != null) {
             model.startExpressionFromFile(fileName);
+        }
+    }
+
+    /**
+     * Clear all active expressions, returning the model to its default state.
+     */
+    public void clearExpression() {
+        if (model != null) {
+            model.clearExpression();
         }
     }
 

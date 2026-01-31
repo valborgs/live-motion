@@ -26,6 +26,7 @@
 16. [Clean Architecture 리팩터링](#16-clean-architecture-리팩터링-2026-01-29-업데이트)
 17. [외부 모델 가져오기 기능](#17-외부-모델-가져오기-기능-2026-01-30-업데이트)
 18. [외부 모델 삭제 기능](#18-외부-모델-삭제-기능-2026-01-31-업데이트)
+19. [감정/모션 초기화 기능](#19-감정모션-초기화-기능-2026-01-31-업데이트)
 
 ---
 
@@ -1377,4 +1378,146 @@ override suspend fun deleteModel(modelId: String): Result<Unit> {
 | `StudioScreen.kt` | ViewModel 초기화 수정 |
 | `AppContainer.kt` | `deleteExternalModelsUseCase` 추가 |
 | `AppContainerImpl.kt` | UseCase 구현 추가 |
+
+---
+
+## 19. 감정/모션 초기화 기능 (2026-01-31 업데이트)
+
+### 배경
+- 감정(Expression) 또는 모션(Motion)을 선택하여 적용한 후, 원래 상태로 되돌리는 기능이 없었음
+- 사용자가 다양한 표정/동작을 테스트할 때 초기화 기능 필요
+
+### 구현 내용
+
+#### 1. Expression 초기화
+
+**LAppMinimumModel.java**에 `clearExpression()` 메서드 추가:
+
+```java
+/**
+ * Clear all active expressions, returning the model to its default state.
+ */
+public void clearExpression() {
+    if (expressionManager != null) {
+        expressionManager.stopAllMotions();
+    }
+}
+```
+
+Expression은 `CubismMotionManager`의 `stopAllMotions()`만 호출하면 기본 상태로 복귀됨.
+
+#### 2. Motion 초기화
+
+Motion 초기화는 Expression보다 복잡한 처리가 필요:
+
+**문제점**: `stopAllMotions()`만 호출하면 모션이 현재 프레임에서 멈추고, 기본 포즈로 돌아가지 않음
+
+**원인 분석** (`LAppMinimumModel.update()` 흐름):
+1. `model.loadParameters()` - 이전에 저장된 파라미터 로드
+2. `motionManager.updateMotion()` - 모션이 파라미터 업데이트
+3. `model.saveParameters()` - 현재 파라미터 저장
+
+모션 중지 후에도 `loadParameters()`가 저장된 값을 다시 로드하므로, 파라미터가 모션 상태로 유지됨.
+
+**해결 방법**: 파라미터를 기본값으로 리셋 후 `saveParameters()` 호출
+
+```java
+/**
+ * Clear all active motions, returning the model to its idle state.
+ * Resets all parameters to their default values.
+ */
+public void clearMotion() {
+    if (motionManager != null) {
+        motionManager.stopAllMotions();
+    }
+    // 모든 파라미터를 기본값으로 리셋
+    if (model != null) {
+        int parameterCount = model.getParameterCount();
+        for (int i = 0; i < parameterCount; i++) {
+            float defaultValue = model.getParameterDefaultValue(i);
+            model.setParameterValue(i, defaultValue);
+        }
+        // 리셋된 상태를 저장하여 다음 프레임의 loadParameters()에서 유지되도록 함
+        model.saveParameters();
+    }
+}
+```
+
+#### 3. Manager Wrapper 메서드
+
+**LAppMinimumLive2DManager.java**에 UI에서 호출할 수 있는 wrapper 추가:
+
+```java
+public void clearExpression() {
+    if (model != null) {
+        model.clearExpression();
+    }
+}
+
+public void clearMotion() {
+    if (model != null) {
+        model.clearMotion();
+    }
+}
+```
+
+#### 4. UI 통합
+
+**StudioScreen.kt**의 `FileListDialog` 호출 시 "초기화" 아이템을 목록 맨 앞에 추가:
+
+```kotlin
+// Expression 다이얼로그
+is StudioViewModel.DialogState.Expression -> {
+    FileListDialog(
+        title = "감정 목록",
+        files = listOf("초기화") + uiState.expressionFiles,
+        onFileSelected = { fileName ->
+            if (fileName == "초기화") {
+                LAppMinimumLive2DManager.getInstance().clearExpression()
+            } else {
+                LAppMinimumLive2DManager.getInstance()
+                    .startExpression("${uiState.expressionsFolder}/$fileName")
+            }
+            viewModel.dismissDialog()
+        }
+    )
+}
+
+// Motion 다이얼로그
+is StudioViewModel.DialogState.Motion -> {
+    FileListDialog(
+        title = "모션 목록",
+        files = listOf("초기화") + uiState.motionFiles,
+        onFileSelected = { fileName ->
+            if (fileName == "초기화") {
+                LAppMinimumLive2DManager.getInstance().clearMotion()
+            } else {
+                LAppMinimumLive2DManager.getInstance()
+                    .startMotion("${uiState.motionsFolder}/$fileName")
+            }
+            viewModel.dismissDialog()
+        }
+    )
+}
+```
+
+### Live2D SDK 참고
+
+`expressionManager`와 `motionManager`는 모두 `CubismMotionManager` 타입:
+
+| 메서드 | 설명 |
+|--------|------|
+| `startMotionPriority()` | 모션/표정 시작 |
+| `updateMotion()` | 프레임별 업데이트 |
+| `stopAllMotions()` | 모든 모션 중지 |
+| `isFinished()` | 모션 완료 여부 |
+
+### 관련 파일
+
+**수정됨**
+| 파일 | 변경 내용 |
+|------|----------|
+| `LAppMinimumModel.java` | `clearExpression()`, `clearMotion()` 메서드 추가 |
+| `LAppMinimumLive2DManager.java` | `clearExpression()`, `clearMotion()` wrapper 추가 |
+| `StudioScreen.kt` | 다이얼로그에 "초기화" 아이템 추가 |
 

@@ -317,11 +317,15 @@ fun StudioScreen(
         is StudioViewModel.DialogState.Expression -> {
             FileListDialog(
                 title = "감정 목록",
-                files = uiState.expressionFiles,
+                files = listOf("초기화") + uiState.expressionFiles,
                 onDismiss = { viewModel.dismissDialog() },
                 onFileSelected = { fileName ->
-                    LAppMinimumLive2DManager.getInstance()
-                        .startExpression("${uiState.expressionsFolder}/$fileName")
+                    if (fileName == "초기화") {
+                        LAppMinimumLive2DManager.getInstance().clearExpression()
+                    } else {
+                        LAppMinimumLive2DManager.getInstance()
+                            .startExpression("${uiState.expressionsFolder}/$fileName")
+                    }
                     viewModel.dismissDialog()
                 }
             )
@@ -329,11 +333,15 @@ fun StudioScreen(
         is StudioViewModel.DialogState.Motion -> {
             FileListDialog(
                 title = "모션 목록",
-                files = uiState.motionFiles,
+                files = listOf("초기화") + uiState.motionFiles,
                 onDismiss = { viewModel.dismissDialog() },
                 onFileSelected = { fileName ->
-                    LAppMinimumLive2DManager.getInstance()
-                        .startMotion("${uiState.motionsFolder}/$fileName")
+                    if (fileName == "초기화") {
+                        LAppMinimumLive2DManager.getInstance().clearMotion()
+                    } else {
+                        LAppMinimumLive2DManager.getInstance()
+                            .startMotion("${uiState.motionsFolder}/$fileName")
+                    }
                     viewModel.dismissDialog()
                 }
             )
