@@ -167,6 +167,7 @@ fun StudioScreen(
                         )
                     )
                 )
+                .navigationBarsPadding()
         ) {
             Row(
                 modifier = Modifier
