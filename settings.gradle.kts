@@ -1,38 +1,15 @@
-import org.gradle.kotlin.dsl.flatDir
-import org.gradle.kotlin.dsl.repositories
-
+include(":feature:home")
 include(":domain")
-
-
 include(":core:tracking")
-
-
 include(":core:face")
-
-
 include(":core:live2d")
-
-
 include(":core:storage")
-
-
 include(":data")
-
-
 include(":core:common")
-
-
 include(":core:navigation")
-
-
 include(":core:ui")
-
-
 include(":feature:settings")
-
-
 include(":feature:studio")
-
 
 pluginManagement {
     repositories {

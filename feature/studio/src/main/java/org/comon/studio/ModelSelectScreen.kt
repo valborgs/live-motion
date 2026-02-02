@@ -21,13 +21,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.window.Dialog
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.launch
-import org.comon.common.di.LocalAppContainer
+import org.comon.ui.theme.LiveMotionTheme
 import org.comon.domain.model.ModelSource
 import org.comon.storage.SAFPermissionManager
 
@@ -36,18 +38,10 @@ import org.comon.storage.SAFPermissionManager
 fun ModelSelectScreen(
     onModelSelected: (ModelSource) -> Unit,
     errorMessage: String? = null,
-    onErrorConsumed: () -> Unit = {}
+    onErrorConsumed: () -> Unit = {},
+    viewModel: ModelSelectViewModel = hiltViewModel()
 ) {
-    val container = LocalAppContainer.current
     val context = LocalContext.current
-
-    val viewModel: ModelSelectViewModel = viewModel(
-        factory = ModelSelectViewModel.Factory(
-            container.getAllModelsUseCase,
-            container.importExternalModelUseCase,
-            container.deleteExternalModelsUseCase
-        )
-    )
 
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -71,18 +65,21 @@ fun ModelSelectScreen(
             // 권한 영구 저장
             safPermissionManager.persistPermission(it)
             // 모델 가져오기
-            viewModel.importModel(it.toString())
+            viewModel.onIntent(ModelSelectUiIntent.ImportModel(it.toString()))
         }
     }
 
+    val snackbarMessage = stringResource(R.string.snackbar_model_load_failed)
+    val snackbarAction = stringResource(R.string.snackbar_action_detail)
     // 외부 에러 메시지 처리
     LaunchedEffect(errorMessage) {
         if (errorMessage != null) {
             currentErrorDetail = errorMessage
+
             scope.launch {
                 val result = snackbarHostState.showSnackbar(
-                    message = "모델 로딩에 실패했습니다",
-                    actionLabel = "자세히",
+                    message = snackbarMessage,
+                    actionLabel = snackbarAction,
                     duration = SnackbarDuration.Long
                 )
                 if (result == SnackbarResult.ActionPerformed) {
@@ -93,27 +90,29 @@ fun ModelSelectScreen(
         }
     }
 
+    val snackbarErrorMessage = stringResource(R.string.snackbar_error_occurred)
     // ViewModel 에러 처리
     LaunchedEffect(uiState.error) {
         uiState.error?.let { error ->
             currentErrorDetail = error
+
             scope.launch {
                 val result = snackbarHostState.showSnackbar(
-                    message = "오류가 발생했습니다",
-                    actionLabel = "자세히",
+                    message = snackbarErrorMessage,
+                    actionLabel = snackbarAction,
                     duration = SnackbarDuration.Long
                 )
                 if (result == SnackbarResult.ActionPerformed) {
                     showErrorDetailDialog = true
                 }
             }
-            viewModel.clearError()
+            viewModel.onIntent(ModelSelectUiIntent.ClearError)
         }
     }
 
     // 삭제 모드에서 뒤로가기 처리
     BackHandler(enabled = uiState.isDeleteMode) {
-        viewModel.exitDeleteMode()
+        viewModel.onIntent(ModelSelectUiIntent.ExitDeleteMode)
     }
 
     Scaffold(
@@ -123,15 +122,15 @@ fun ModelSelectScreen(
                 TopAppBar(
                     title = {
                         Text(
-                            "${uiState.selectedModelIds.size}개 선택됨",
+                            stringResource(R.string.model_select_selected_count, uiState.selectedModelIds.size),
                             fontWeight = FontWeight.Bold
                         )
                     },
                     navigationIcon = {
-                        IconButton(onClick = { viewModel.exitDeleteMode() }) {
+                        IconButton(onClick = { viewModel.onIntent(ModelSelectUiIntent.ExitDeleteMode) }) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "삭제 모드 종료"
+                                contentDescription = stringResource(R.string.model_select_delete_mode_exit)
                             )
                         }
                     },
@@ -142,7 +141,7 @@ fun ModelSelectScreen(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
-                                contentDescription = "선택한 모델 삭제",
+                                contentDescription = stringResource(R.string.model_select_delete_selected),
                                 tint = if (uiState.selectedModelIds.isNotEmpty()) {
                                     Color(0xFFE53935)
                                 } else {
@@ -155,7 +154,7 @@ fun ModelSelectScreen(
             } else {
                 // 일반 모드 앱바
                 TopAppBar(
-                    title = { Text("캐릭터 선택", fontWeight = FontWeight.Bold) }
+                    title = { Text(stringResource(R.string.model_select_title), fontWeight = FontWeight.Bold) }
                 )
             }
         },
@@ -169,7 +168,7 @@ fun ModelSelectScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
-                        contentDescription = "모델 가져오기"
+                        contentDescription = stringResource(R.string.model_select_import)
                     )
                 }
             }
@@ -203,7 +202,7 @@ fun ModelSelectScreen(
                                 if (uiState.isDeleteMode) {
                                     // 삭제 모드에서 외부 모델만 선택 가능
                                     if (modelSource is ModelSource.External) {
-                                        viewModel.toggleModelSelection(modelSource.id)
+                                        viewModel.onIntent(ModelSelectUiIntent.ToggleModelSelection(modelSource.id))
                                     }
                                 } else {
                                     onModelSelected(modelSource)
@@ -212,7 +211,7 @@ fun ModelSelectScreen(
                             onLongClick = {
                                 // 외부 모델만 길게 눌러서 삭제 모드 진입 가능
                                 if (modelSource is ModelSource.External && !uiState.isDeleteMode) {
-                                    viewModel.enterDeleteMode(modelSource.id)
+                                    viewModel.onIntent(ModelSelectUiIntent.EnterDeleteMode(modelSource.id))
                                 }
                             }
                         )
@@ -241,7 +240,7 @@ fun ModelSelectScreen(
             count = uiState.selectedModelIds.size,
             onConfirm = {
                 showDeleteConfirmDialog = false
-                viewModel.deleteSelectedModels()
+                viewModel.onIntent(ModelSelectUiIntent.DeleteSelectedModels)
             },
             onDismiss = { showDeleteConfirmDialog = false }
         )
@@ -310,7 +309,7 @@ private fun ModelCard(
                 if (isExternal) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "외부 모델",
+                        text = stringResource(R.string.model_select_external_label),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -348,7 +347,7 @@ private fun ImportProgressDialog(progress: Float) {
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
-                    text = "모델 가져오는 중...",
+                    text = stringResource(R.string.dialog_import_progress_title),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -388,7 +387,7 @@ private fun ErrorDetailDialog(
                 modifier = Modifier.padding(20.dp)
             ) {
                 Text(
-                    text = "에러 상세",
+                    text = stringResource(R.string.dialog_error_detail_title),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
@@ -413,7 +412,7 @@ private fun ErrorDetailDialog(
                     onClick = onDismiss,
                     modifier = Modifier.align(Alignment.End)
                 ) {
-                    Text("확인")
+                    Text(stringResource(R.string.button_confirm))
                 }
             }
         }
@@ -430,16 +429,16 @@ private fun DeleteConfirmDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = "모델 삭제",
+                text = stringResource(R.string.dialog_delete_title),
                 fontWeight = FontWeight.Bold
             )
         },
         text = {
-            Text("${count}개의 모델을 삭제하시겠습니까?")
+            Text(stringResource(R.string.dialog_delete_message, count))
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("취소")
+                Text(stringResource(R.string.button_cancel))
             }
         },
         dismissButton = {
@@ -449,7 +448,7 @@ private fun DeleteConfirmDialog(
                     contentColor = Color(0xFFE53935)
                 )
             ) {
-                Text("삭제")
+                Text(stringResource(R.string.button_delete))
             }
         }
     )
@@ -474,10 +473,43 @@ private fun DeletingProgressDialog() {
                     strokeWidth = 2.dp
                 )
                 Text(
-                    text = "삭제 중...",
+                    text = stringResource(R.string.dialog_deleting),
                     style = MaterialTheme.typography.bodyLarge
                 )
             }
         }
+    }
+}
+
+@Preview(name = "Light Mode", showBackground = true)
+@Preview(
+    name = "Dark Mode",
+    showBackground = true,
+    uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES
+)
+@Composable
+private fun ModelCardPreview() {
+    LiveMotionTheme {
+        ModelCard(
+            modelSource = ModelSource.Asset("Haru"),
+            isDeleteMode = false,
+            isSelected = false,
+            onClick = {},
+            onLongClick = {}
+        )
+    }
+}
+
+@Preview(name = "Delete Mode", showBackground = true)
+@Composable
+private fun ModelCardDeleteModePreview() {
+    LiveMotionTheme {
+        ModelCard(
+            modelSource = ModelSource.Asset("Haru"),
+            isDeleteMode = true,
+            isSelected = false,
+            onClick = {},
+            onLongClick = {}
+        )
     }
 }

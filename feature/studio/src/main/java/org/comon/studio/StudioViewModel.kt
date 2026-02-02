@@ -3,29 +3,59 @@ package org.comon.studio
 import androidx.camera.core.Preview.SurfaceProvider
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.comon.domain.common.DomainException
 import org.comon.domain.model.FacePose
-import org.comon.domain.model.Live2DParams
+import org.comon.domain.model.FacePoseSmoothingState
 import org.comon.domain.model.ModelSource
 import org.comon.domain.usecase.GetModelMetadataUseCase
 import org.comon.domain.usecase.MapFacePoseUseCase
 import org.comon.tracking.FaceTracker
 import org.comon.tracking.FaceTrackerFactory
 import org.comon.tracking.TrackingError
+import javax.inject.Inject
 
-class StudioViewModel(
+/**
+ * Studio 화면의 상태 관리 및 비즈니스 로직을 담당하는 ViewModel.
+ *
+ * ## 책임
+ * - 얼굴 추적 시스템 초기화 및 관리 (FaceTracker)
+ * - 실시간 얼굴 포즈 데이터를 Live2D 파라미터로 변환
+ * - Live2D 모델 메타데이터(표정/모션 파일) 로딩
+ * - UI 상태 관리 (확대/이동 모드, 프리뷰 표시 등)
+ *
+ * ## 데이터 흐름
+ * 1. [initialize] 호출로 FaceTracker 생성 및 시작
+ * 2. FaceTracker에서 [facePose]와 [faceLandmarks] 수신
+ * 3. [mapFaceParams]로 Live2D 파라미터 변환
+ * 4. UI는 [uiState]를 관찰하여 렌더링
+ *
+ * ## MVI 패턴
+ * - Intent: [StudioUiIntent]를 통해 사용자 액션 전달
+ * - State: [StudioUiState]로 단일 UI 상태 관리
+ * - Effect: [uiEffect]로 일회성 이벤트 처리
+ *
+ * @property faceTrackerFactory 얼굴 추적기 생성 팩토리
+ * @property getModelMetadataUseCase 모델 메타데이터 조회 UseCase
+ */
+@HiltViewModel
+class StudioViewModel @Inject constructor(
     private val faceTrackerFactory: FaceTrackerFactory,
-    private val getModelMetadataUseCase: GetModelMetadataUseCase,
-    private val mapFacePoseUseCase: MapFacePoseUseCase
+    private val getModelMetadataUseCase: GetModelMetadataUseCase
 ) : ViewModel() {
+
+    // MapFacePoseUseCase는 순수 함수, 상태는 ViewModel에서 관리
+    private val mapFacePoseUseCase = MapFacePoseUseCase()
+    private var smoothingState = FacePoseSmoothingState()
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // FaceTracker (configuration change에서 생존)
@@ -49,6 +79,12 @@ class StudioViewModel(
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private val _uiState = MutableStateFlow(StudioUiState())
     val uiState: StateFlow<StudioUiState> = _uiState.asStateFlow()
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // UI Effect (일회성 이벤트)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    private val _uiEffect = Channel<StudioUiEffect>()
+    val uiEffect = _uiEffect.receiveAsFlow()
 
     data class StudioUiState(
         // 모델 로딩 상태
@@ -83,9 +119,15 @@ class StudioViewModel(
         data object Motion : DialogState()
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 초기화
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    /**
+     * ViewModel을 초기화합니다.
+     *
+     * FaceTracker를 생성하고 얼굴 추적을 시작합니다.
+     * configuration change에서 FaceTracker를 재사용하므로 이미 초기화된 경우 스킵합니다.
+     *
+     * @param lifecycleOwner 카메라 생명주기 관리를 위한 LifecycleOwner
+     * @param modelSource 로드할 Live2D 모델 소스 (Asset 또는 External)
+     */
     fun initialize(lifecycleOwner: LifecycleOwner, modelSource: ModelSource) {
         if (faceTracker == null) {
             faceTracker = faceTrackerFactory.create(lifecycleOwner).also { tracker ->
@@ -152,61 +194,96 @@ class StudioViewModel(
         }
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // Face Params 계산 (UseCase 사용)
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    /**
+     * 얼굴 포즈 데이터를 Live2D 파라미터 맵으로 변환합니다.
+     *
+     * EMA 스무딩이 적용되어 부드러운 애니메이션을 제공합니다.
+     * 얼굴이 감지되지 않으면 기본값을 반환하고 스무딩 상태를 초기화합니다.
+     *
+     * @param facePose 얼굴 포즈 데이터 (yaw, pitch, roll, 눈, 입 등)
+     * @param hasLandmarks 얼굴 랜드마크 감지 여부
+     * @return Live2D 파라미터 맵 (ParamAngleX, ParamEyeLOpen 등)
+     */
     fun mapFaceParams(facePose: FacePose, hasLandmarks: Boolean): Map<String, Float> {
-        val params = mapFacePoseUseCase(facePose, hasLandmarks)
+        val (params, newState) = mapFacePoseUseCase(facePose, smoothingState, hasLandmarks)
+        smoothingState = newState
         return params.params
+    }
+
+    /**
+     * UI Intent를 처리합니다.
+     *
+     * MVI 패턴에서 사용자 액션(Intent)을 받아 적절한 상태 변경을 수행합니다.
+     *
+     * @param intent 처리할 사용자 의도
+     */
+    fun onIntent(intent: StudioUiIntent) {
+        when (intent) {
+            is StudioUiIntent.ToggleZoom -> toggleZoom()
+            is StudioUiIntent.ToggleMove -> toggleMove()
+            is StudioUiIntent.TogglePreview -> togglePreview()
+            is StudioUiIntent.SetGpuEnabled -> setGpuEnabled(intent.enabled)
+            is StudioUiIntent.ShowExpressionDialog -> showExpressionDialog()
+            is StudioUiIntent.ShowMotionDialog -> showMotionDialog()
+            is StudioUiIntent.DismissDialog -> dismissDialog()
+            is StudioUiIntent.ClearTrackingError -> clearTrackingError()
+            is StudioUiIntent.ClearDomainError -> clearDomainError()
+            is StudioUiIntent.OnModelLoaded -> onModelLoaded()
+        }
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // UI Actions
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    fun toggleZoom() {
+    private fun toggleZoom() {
         _uiState.update { it.copy(isZoomEnabled = !it.isZoomEnabled) }
     }
 
-    fun toggleMove() {
+    private fun toggleMove() {
         _uiState.update { it.copy(isMoveEnabled = !it.isMoveEnabled) }
     }
 
-    fun togglePreview() {
+    private fun togglePreview() {
         _uiState.update { it.copy(isPreviewVisible = !it.isPreviewVisible) }
     }
 
-    fun setGpuEnabled(enabled: Boolean) {
+    private fun setGpuEnabled(enabled: Boolean) {
         faceTracker?.setGpuEnabled(enabled)
     }
 
-    fun showExpressionDialog() {
+    private fun showExpressionDialog() {
         _uiState.update { it.copy(dialogState = DialogState.Expression) }
     }
 
-    fun showMotionDialog() {
+    private fun showMotionDialog() {
         _uiState.update { it.copy(dialogState = DialogState.Motion) }
     }
 
-    fun dismissDialog() {
+    private fun dismissDialog() {
         _uiState.update { it.copy(dialogState = DialogState.None) }
     }
 
-    fun onModelLoaded() {
+    private fun onModelLoaded() {
         _uiState.update { it.copy(isModelLoading = false) }
     }
 
-    fun clearTrackingError() {
+    private fun clearTrackingError() {
         faceTracker?.clearError()
         _uiState.update { it.copy(trackingError = null) }
     }
 
-    fun clearDomainError() {
+    private fun clearDomainError() {
         _uiState.update { it.copy(domainError = null) }
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // Preview 연결/해제
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    /**
+     * 카메라 프리뷰를 연결합니다.
+     *
+     * FaceTracker가 아직 초기화되지 않은 경우 대기열에 저장되어
+     * 초기화 완료 후 자동으로 연결됩니다.
+     *
+     * @param surfaceProvider 프리뷰를 표시할 SurfaceProvider
+     */
     fun attachPreview(surfaceProvider: SurfaceProvider) {
         val tracker = faceTracker
         if (tracker != null) {
@@ -217,6 +294,9 @@ class StudioViewModel(
         }
     }
 
+    /**
+     * 카메라 프리뷰 연결을 해제합니다.
+     */
     fun detachPreview() {
         pendingSurfaceProvider = null
         faceTracker?.detachPreview()
@@ -231,24 +311,4 @@ class StudioViewModel(
         faceTracker = null
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // Factory (의존성 주입)
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    class Factory(
-        private val faceTrackerFactory: FaceTrackerFactory,
-        private val getModelMetadataUseCase: GetModelMetadataUseCase,
-        private val mapFacePoseUseCase: MapFacePoseUseCase
-    ) : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            if (modelClass.isAssignableFrom(StudioViewModel::class.java)) {
-                return StudioViewModel(
-                    faceTrackerFactory,
-                    getModelMetadataUseCase,
-                    mapFacePoseUseCase
-                ) as T
-            }
-            throw IllegalArgumentException("Unknown ViewModel class")
-        }
-    }
 }

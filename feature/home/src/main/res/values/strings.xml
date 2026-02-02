@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- TitleScreen -->
+    <string name="title_studio">Studio</string>
+    <string name="title_settings">Settings</string>
+    <string name="title_background_description">Title Background</string>
+
+    <!-- IntroScreen -->
+    <string name="intro_logo_description">Cubism Logo</string>
+</resources>

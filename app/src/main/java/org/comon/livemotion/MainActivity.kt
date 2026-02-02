@@ -31,17 +31,18 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
-import org.comon.common.di.LocalAppContainer
+import dagger.hilt.android.AndroidEntryPoint
 import org.comon.domain.model.ExternalModel
 import org.comon.domain.model.ModelSource
 import org.comon.navigation.NavKey
-import org.comon.studio.CubismIntroScreen
+import org.comon.home.IntroScreen
+import org.comon.home.TitleScreen
+import org.comon.settings.SettingsScreen
 import org.comon.studio.ModelSelectScreen
-import org.comon.studio.SettingsScreen
 import org.comon.studio.StudioScreen
-import org.comon.studio.TitleScreen
 import org.comon.ui.theme.LiveMotionTheme
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -49,11 +50,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            val container = (application as LiveMotionApp).container
-            CompositionLocalProvider(LocalAppContainer provides container) {
-                LiveMotionTheme {
-                    MainContent()
-                }
+            LiveMotionTheme {
+                MainContent()
             }
         }
     }
@@ -122,7 +120,7 @@ class MainActivity : ComponentActivity() {
                 startDestination = NavKey.Intro
             ) {
                 composable<NavKey.Intro> {
-                    CubismIntroScreen(
+                    IntroScreen(
                         onTimeout = {
                             navController.navigate(NavKey.Title) {
                                 popUpTo(NavKey.Intro) { inclusive = true }

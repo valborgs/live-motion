@@ -1,17 +1,32 @@
 package org.comon.domain.usecase
 
 import org.comon.domain.model.FacePose
+import org.comon.domain.model.FacePoseSmoothingState
 import org.comon.domain.model.Live2DParams
 
 /**
- * FacePose를 Live2D 파라미터로 변환하는 UseCase
+ * FacePose를 Live2D 파라미터로 변환하는 UseCase.
  *
- * 이 UseCase는 상태를 가집니다 (EMA 스무딩을 위한 이전 값 저장).
- * 따라서 매번 새 인스턴스를 생성해야 합니다.
+ * ## 순수 함수
+ * 이 UseCase는 상태를 가지지 않는 순수 함수입니다.
+ * EMA 스무딩을 위한 상태는 [FacePoseSmoothingState]로 분리되어
+ * 외부(ViewModel)에서 관리됩니다.
+ *
+ * ## 사용 예시
+ * ```kotlin
+ * class StudioViewModel {
+ *     private var smoothingState = FacePoseSmoothingState()
+ *     private val mapFacePoseUseCase = MapFacePoseUseCase()
+ *
+ *     fun mapFaceParams(facePose: FacePose, hasLandmarks: Boolean): Map<String, Float> {
+ *         val (params, newState) = mapFacePoseUseCase(facePose, smoothingState, hasLandmarks)
+ *         smoothingState = newState
+ *         return params.params
+ *     }
+ * }
+ * ```
  */
 class MapFacePoseUseCase {
-
-    private var lastPose = FacePose()
 
     /**
      * EMA (Exponential Moving Average) 스무딩 계수
@@ -25,31 +40,34 @@ class MapFacePoseUseCase {
     private val alpha = 0.4f
 
     /**
-     * 내부 상태를 초기화하여 얼굴이 나타날 때 이전 위치에서 튀는 현상을 방지
-     */
-    fun reset() {
-        lastPose = FacePose()
-    }
-
-    /**
      * FacePose를 Live2D 파라미터로 변환합니다.
      *
      * @param facePose 얼굴 포즈 데이터
+     * @param state 이전 스무딩 상태
      * @param hasLandmarks 얼굴 랜드마크 감지 여부
-     * @return Live2D 파라미터
+     * @return Pair<Live2DParams, FacePoseSmoothingState> - 변환된 파라미터와 새로운 상태
      */
-    operator fun invoke(facePose: FacePose, hasLandmarks: Boolean): Live2DParams {
+    operator fun invoke(
+        facePose: FacePose,
+        state: FacePoseSmoothingState,
+        hasLandmarks: Boolean
+    ): Pair<Live2DParams, FacePoseSmoothingState> {
         if (!hasLandmarks) {
-            reset()
-            return Live2DParams.DEFAULT
+            // 얼굴이 감지되지 않으면 상태 초기화
+            return Pair(Live2DParams.DEFAULT, FacePoseSmoothingState())
         }
-        return Live2DParams(map(facePose))
+        return map(facePose, state)
     }
 
     /**
      * 새로운 얼굴 포즈를 받아 스무딩을 적용하고 Live2D 파라미터 맵으로 변환
      */
-    private fun map(newPose: FacePose): Map<String, Float> {
+    private fun map(
+        newPose: FacePose,
+        state: FacePoseSmoothingState
+    ): Pair<Live2DParams, FacePoseSmoothingState> {
+        val lastPose = state.lastPose
+
         // EMA 스무딩 (모든 필드에 적용)
         val smoothed = FacePose(
             yaw = smooth(lastPose.yaw, newPose.yaw),
@@ -62,8 +80,14 @@ class MapFacePoseUseCase {
             eyeBallX = smooth(lastPose.eyeBallX, newPose.eyeBallX),
             eyeBallY = smooth(lastPose.eyeBallY, newPose.eyeBallY)
         )
-        lastPose = smoothed
 
+        val newState = FacePoseSmoothingState(lastPose = smoothed)
+        val params = buildParams(smoothed)
+
+        return Pair(Live2DParams(params), newState)
+    }
+
+    private fun buildParams(smoothed: FacePose): Map<String, Float> {
         val params = mutableMapOf<String, Float>()
 
         // ===========================================

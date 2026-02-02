@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ModelSelectScreen -->
+    <string name="model_select_title">캐릭터 선택</string>
+    <string name="model_select_delete_mode_exit">삭제 모드 종료</string>
+    <string name="model_select_delete_selected">선택한 모델 삭제</string>
+    <string name="model_select_import">모델 가져오기</string>
+    <string name="model_select_external_label">외부 모델</string>
+    <string name="model_select_selected_count">%d개 선택됨</string>
+
+    <!-- ModelSelectScreen - Dialogs -->
+    <string name="dialog_import_progress_title">모델 가져오는 중...</string>
+    <string name="dialog_error_detail_title">에러 상세</string>
+    <string name="dialog_delete_title">모델 삭제</string>
+    <string name="dialog_delete_message">%d개의 모델을 삭제하시겠습니까?</string>
+    <string name="dialog_deleting">삭제 중...</string>
+
+    <!-- ModelSelectScreen - Snackbar -->
+    <string name="snackbar_model_load_failed">모델 로딩에 실패했습니다</string>
+    <string name="snackbar_error_occurred">오류가 발생했습니다</string>
+    <string name="snackbar_action_detail">자세히</string>
+
+    <!-- StudioScreen -->
+    <string name="studio_model_loading">모델 로딩 중...</string>
+    <string name="studio_calibrating">얼굴 보정 중입니다...\n5초 동안 정면을 응시해 주세요.</string>
+    <string name="studio_back">뒤로</string>
+    <string name="studio_expression">감정</string>
+    <string name="studio_motion">모션</string>
+    <string name="studio_gpu">GPU</string>
+    <string name="studio_cpu">CPU</string>
+    <string name="studio_zoom">확대</string>
+    <string name="studio_move">이동</string>
+    <string name="studio_preview">프리뷰</string>
+    <string name="studio_snackbar_tracking_error">트래킹 오류가 발생했습니다</string>
+
+    <!-- StudioScreen - Dialogs -->
+    <string name="dialog_expression_title">감정 목록</string>
+    <string name="dialog_motion_title">모션 목록</string>
+    <string name="dialog_reset">초기화</string>
+    <string name="dialog_tracking_error_title">트래킹 에러 상세</string>
+
+    <!-- Common -->
+    <string name="button_confirm">확인</string>
+    <string name="button_cancel">취소</string>
+    <string name="button_delete">삭제</string>
+    <string name="button_close">닫기</string>
+</resources>

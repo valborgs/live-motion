@@ -12,15 +12,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import org.comon.ui.theme.LiveMotionTheme
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
-import org.comon.common.di.LocalAppContainer
 import org.comon.domain.model.ModelSource
 import org.comon.live2d.LAppMinimumLive2DManager
 import org.comon.live2d.Live2DScreen
@@ -31,16 +33,7 @@ fun StudioScreen(
     modelSource: ModelSource,
     onBack: () -> Unit,
     onError: (String) -> Unit = {},
-    viewModel: StudioViewModel = run {
-        val container = LocalAppContainer.current
-        viewModel(
-            factory = StudioViewModel.Factory(
-                container.faceTrackerFactory,
-                container.getModelMetadataUseCase,
-                container.createMapFacePoseUseCase()
-            )
-        )
-    }
+    viewModel: StudioViewModel = hiltViewModel()
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val snackbarHostState = remember { SnackbarHostState() }
@@ -62,6 +55,9 @@ fun StudioScreen(
     // UI 상태 (단일 State)
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
+    val snackbarMessage = stringResource(R.string.studio_snackbar_tracking_error)
+    val snackbarAction = stringResource(R.string.snackbar_action_detail)
+
     // 트래킹 에러 발생 시 스낵바 표시
     LaunchedEffect(uiState.trackingError) {
         uiState.trackingError?.let { error ->
@@ -73,14 +69,14 @@ fun StudioScreen(
             currentErrorDetail = errorMessage
             scope.launch {
                 val result = snackbarHostState.showSnackbar(
-                    message = "트래킹 오류가 발생했습니다",
-                    actionLabel = "자세히",
+                    message = snackbarMessage,
+                    actionLabel = snackbarAction,
                     duration = SnackbarDuration.Long
                 )
                 if (result == SnackbarResult.ActionPerformed) {
                     showErrorDetailDialog = true
                 }
-                viewModel.clearTrackingError()
+                viewModel.onIntent(StudioUiIntent.ClearTrackingError)
             }
         }
     }
@@ -104,7 +100,7 @@ fun StudioScreen(
                 faceParams = faceParams,
                 isZoomEnabled = uiState.isZoomEnabled,
                 isMoveEnabled = uiState.isMoveEnabled,
-                onModelLoaded = { viewModel.onModelLoaded() },
+                onModelLoaded = { viewModel.onIntent(StudioUiIntent.OnModelLoaded) },
                 onModelLoadError = { error ->
                     onError(error)
                     onBack()
@@ -123,7 +119,7 @@ fun StudioScreen(
                         CircularProgressIndicator(color = Color.White)
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            "모델 로딩 중...",
+                            stringResource(R.string.studio_model_loading),
                             color = Color.White,
                             textAlign = TextAlign.Center,
                             style = MaterialTheme.typography.titleMedium
@@ -144,7 +140,7 @@ fun StudioScreen(
                         CircularProgressIndicator(color = Color.White)
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            "얼굴 보정 중입니다...\n5초 동안 정면을 응시해 주세요.",
+                            stringResource(R.string.studio_calibrating),
                             color = Color.White,
                             textAlign = TextAlign.Center,
                             style = MaterialTheme.typography.titleMedium
@@ -191,15 +187,15 @@ fun StudioScreen(
                     ) {
                         StudioIconButton(
                             emoji = "⬅️",
-                            text = "뒤로",
+                            text = stringResource(R.string.studio_back),
                             onClick = onBack
                         )
 
                         if (uiState.expressionsFolder != null) {
                             StudioIconButton(
                                 emoji = "😊",
-                                text = "감정",
-                                onClick = { viewModel.showExpressionDialog() },
+                                text = stringResource(R.string.studio_expression),
+                                onClick = { viewModel.onIntent(StudioUiIntent.ShowExpressionDialog) },
                                 accentColor = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -207,8 +203,8 @@ fun StudioScreen(
                         if (uiState.motionsFolder != null) {
                             StudioIconButton(
                                 emoji = "🎬",
-                                text = "모션",
-                                onClick = { viewModel.showMotionDialog() },
+                                text = stringResource(R.string.studio_motion),
+                                onClick = { viewModel.onIntent(StudioUiIntent.ShowMotionDialog) },
                                 accentColor = MaterialTheme.colorScheme.secondary
                             )
                         }
@@ -222,31 +218,31 @@ fun StudioScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         StudioToggleButton(
-                            text = if (uiState.isGpuEnabled) "GPU" else "CPU",
+                            text = if (uiState.isGpuEnabled) stringResource(R.string.studio_gpu) else stringResource(R.string.studio_cpu),
                             emoji = if (uiState.isGpuEnabled) "🚀" else "💻",
                             checked = uiState.isGpuEnabled,
-                            onCheckedChange = { viewModel.setGpuEnabled(it) },
+                            onCheckedChange = { viewModel.onIntent(StudioUiIntent.SetGpuEnabled(it)) },
                             activeColor = MaterialTheme.colorScheme.primary
                         )
                         StudioToggleButton(
-                            text = "확대",
+                            text = stringResource(R.string.studio_zoom),
                             emoji = "🔍",
                             checked = uiState.isZoomEnabled,
-                            onCheckedChange = { viewModel.toggleZoom() },
+                            onCheckedChange = { viewModel.onIntent(StudioUiIntent.ToggleZoom) },
                             activeColor = MaterialTheme.colorScheme.secondary
                         )
                         StudioToggleButton(
-                            text = "이동",
+                            text = stringResource(R.string.studio_move),
                             emoji = "↕️",
                             checked = uiState.isMoveEnabled,
-                            onCheckedChange = { viewModel.toggleMove() },
+                            onCheckedChange = { viewModel.onIntent(StudioUiIntent.ToggleMove) },
                             activeColor = MaterialTheme.colorScheme.primary
                         )
                         StudioToggleButton(
-                            text = "프리뷰",
+                            text = stringResource(R.string.studio_preview),
                             emoji = "📷",
                             checked = uiState.isPreviewVisible,
-                            onCheckedChange = { viewModel.togglePreview() },
+                            onCheckedChange = { viewModel.onIntent(StudioUiIntent.TogglePreview) },
                             activeColor = MaterialTheme.colorScheme.tertiary
                         )
                     }
@@ -304,36 +300,37 @@ fun StudioScreen(
     }
 
     // Dialogs
+    val resetLabel = stringResource(R.string.dialog_reset)
     when (uiState.dialogState) {
         is StudioViewModel.DialogState.Expression -> {
             FileListDialog(
-                title = "감정 목록",
-                files = listOf("초기화") + uiState.expressionFiles,
-                onDismiss = { viewModel.dismissDialog() },
+                title = stringResource(R.string.dialog_expression_title),
+                files = listOf(resetLabel) + uiState.expressionFiles,
+                onDismiss = { viewModel.onIntent(StudioUiIntent.DismissDialog) },
                 onFileSelected = { fileName ->
-                    if (fileName == "초기화") {
+                    if (fileName == resetLabel) {
                         LAppMinimumLive2DManager.getInstance().clearExpression()
                     } else {
                         LAppMinimumLive2DManager.getInstance()
                             .startExpression("${uiState.expressionsFolder}/$fileName")
                     }
-                    viewModel.dismissDialog()
+                    viewModel.onIntent(StudioUiIntent.DismissDialog)
                 }
             )
         }
         is StudioViewModel.DialogState.Motion -> {
             FileListDialog(
-                title = "모션 목록",
-                files = listOf("초기화") + uiState.motionFiles,
-                onDismiss = { viewModel.dismissDialog() },
+                title = stringResource(R.string.dialog_motion_title),
+                files = listOf(resetLabel) + uiState.motionFiles,
+                onDismiss = { viewModel.onIntent(StudioUiIntent.DismissDialog) },
                 onFileSelected = { fileName ->
-                    if (fileName == "초기화") {
+                    if (fileName == resetLabel) {
                         LAppMinimumLive2DManager.getInstance().clearMotion()
                     } else {
                         LAppMinimumLive2DManager.getInstance()
                             .startMotion("${uiState.motionsFolder}/$fileName")
                     }
-                    viewModel.dismissDialog()
+                    viewModel.onIntent(StudioUiIntent.DismissDialog)
                 }
             )
         }
@@ -463,7 +460,7 @@ fun FileListDialog(
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                     shape = RoundedCornerShape(8.dp)
                 ) {
-                    Text("닫기", color = MaterialTheme.colorScheme.onPrimary)
+                    Text(stringResource(R.string.button_close), color = MaterialTheme.colorScheme.onPrimary)
                 }
             }
         }
@@ -487,7 +484,7 @@ private fun TrackingErrorDetailDialog(
                 modifier = Modifier.padding(20.dp)
             ) {
                 Text(
-                    text = "트래킹 에러 상세",
+                    text = stringResource(R.string.dialog_tracking_error_title),
                     style = MaterialTheme.typography.titleLarge,
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -515,9 +512,68 @@ private fun TrackingErrorDetailDialog(
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                     shape = RoundedCornerShape(8.dp)
                 ) {
-                    Text("확인", color = MaterialTheme.colorScheme.onPrimary)
+                    Text(stringResource(R.string.button_confirm), color = MaterialTheme.colorScheme.onPrimary)
                 }
             }
+        }
+    }
+}
+
+@Preview(name = "Light Mode", showBackground = true)
+@Preview(
+    name = "Dark Mode",
+    showBackground = true,
+    uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES
+)
+@Composable
+private fun StudioIconButtonPreview() {
+    LiveMotionTheme {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(16.dp)
+        ) {
+            StudioIconButton(
+                emoji = "⬅️",
+                text = "뒤로",
+                onClick = {}
+            )
+            StudioIconButton(
+                emoji = "😊",
+                text = "감정",
+                onClick = {},
+                accentColor = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
+@Preview(name = "Light Mode", showBackground = true)
+@Preview(
+    name = "Dark Mode",
+    showBackground = true,
+    uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES
+)
+@Composable
+private fun StudioToggleButtonPreview() {
+    LiveMotionTheme {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(16.dp)
+        ) {
+            StudioToggleButton(
+                text = "GPU",
+                emoji = "🚀",
+                checked = true,
+                onCheckedChange = {},
+                activeColor = MaterialTheme.colorScheme.primary
+            )
+            StudioToggleButton(
+                text = "확대",
+                emoji = "🔍",
+                checked = false,
+                onCheckedChange = {},
+                activeColor = MaterialTheme.colorScheme.secondary
+            )
         }
     }
 }

@@ -29,6 +29,10 @@
 19. [감정/모션 초기화 기능](#19-감정모션-초기화-기능-2026-01-31-업데이트)
 20. [스플래시/인트로 화면 구현](#20-스플래시인트로-화면-구현-2026-01-31-업데이트)
 21. [라이트/다크 모드 테마 적용](#21-라이트다크-모드-테마-적용-2026-01-31-업데이트)
+22. [Hilt 의존성 주입 마이그레이션](#22-hilt-의존성-주입-마이그레이션-2026-02-02-업데이트)
+23. [MVI 패턴 완성 (UiIntent/UiEffect)](#23-mvi-패턴-완성-uiintentuieffect-2026-02-02-업데이트)
+24. [Feature 모듈 분리](#24-feature-모듈-분리-2026-02-02-업데이트)
+25. [MapFacePoseUseCase 순수 함수화](#25-mapfaceposeusecase-순수-함수화-2026-02-02-업데이트)
 
 ---
 
@@ -1778,4 +1782,640 @@ fun FileListDialog(...) {
 |------|----------|
 | `ModelSelectScreen.kt` | 모델 카드 배경색 `primaryContainer`로 통일 |
 | `StudioScreen.kt` | 하드코딩 색상 제거, `MaterialTheme.colorScheme` 사용 |
+
+---
+
+## 22. Hilt 의존성 주입 마이그레이션 (2026-02-02 업데이트)
+
+### 배경
+- 기존에는 수동 DI 컨테이너(`AppContainer`, `LocalAppContainer`)를 사용
+- ViewModel Factory를 수동으로 작성해야 하는 번거로움
+- 테스트 시 의존성 교체가 복잡
+
+### 구현 내용
+
+#### 1. Application 클래스 설정
+
+```kotlin
+// app/src/main/java/org/comon/livemotion/LiveMotionApp.kt
+@HiltAndroidApp
+class LiveMotionApp : Application()
+```
+
+#### 2. Activity 설정
+
+```kotlin
+// MainActivity.kt
+@AndroidEntryPoint
+class MainActivity : ComponentActivity() {
+    // CompositionLocalProvider 제거됨
+}
+```
+
+#### 3. Hilt Module 생성
+
+**AppModule** (`core/common/di/AppModule.kt`):
+```kotlin
+@Module
+@InstallIn(SingletonComponent::class)
+object AppModule {
+    @Provides
+    @Singleton
+    fun provideModelAssetReader(@ApplicationContext context: Context): ModelAssetReader {
+        return ModelAssetReader(context.assets)
+    }
+
+    @Provides
+    @Singleton
+    fun provideFaceTrackerFactory(@ApplicationContext context: Context): FaceTrackerFactory {
+        return FaceTrackerFactory(context)
+    }
+}
+```
+
+**StorageModule** (`core/storage/di/StorageModule.kt`):
+```kotlin
+@Module
+@InstallIn(SingletonComponent::class)
+object StorageModule {
+    @Provides
+    @Singleton
+    fun provideModelCacheManager(@ApplicationContext context: Context): ModelCacheManager
+
+    @Provides
+    @Singleton
+    fun provideExternalModelMetadataStore(@ApplicationContext context: Context): ExternalModelMetadataStore
+
+    @Provides
+    @Singleton
+    fun provideSAFPermissionManager(@ApplicationContext context: Context): SAFPermissionManager
+}
+```
+
+**RepositoryModule** (`data/di/RepositoryModule.kt`):
+```kotlin
+@Module
+@InstallIn(SingletonComponent::class)
+abstract class RepositoryModule {
+    @Binds
+    @Singleton
+    abstract fun bindModelRepository(impl: ModelRepositoryImpl): IModelRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindExternalModelRepository(impl: ExternalModelRepositoryImpl): IExternalModelRepository
+}
+```
+
+**UseCaseModule** (`data/di/UseCaseModule.kt`):
+```kotlin
+@Module
+@InstallIn(SingletonComponent::class)
+object UseCaseModule {
+    @Provides
+    fun provideGetAllModelsUseCase(...): GetAllModelsUseCase
+
+    @Provides
+    fun provideGetModelMetadataUseCase(...): GetModelMetadataUseCase
+
+    @Provides
+    fun provideImportExternalModelUseCase(...): ImportExternalModelUseCase
+
+    @Provides
+    fun provideDeleteExternalModelsUseCase(...): DeleteExternalModelsUseCase
+}
+```
+
+#### 4. ViewModel 수정
+
+```kotlin
+// 수정 전 (수동 DI)
+class StudioViewModel(
+    private val faceTrackerFactory: FaceTrackerFactory,
+    private val getModelMetadataUseCase: GetModelMetadataUseCase
+) : ViewModel() {
+    class Factory(...) : ViewModelProvider.Factory { ... }
+}
+
+// 수정 후 (Hilt)
+@HiltViewModel
+class StudioViewModel @Inject constructor(
+    private val faceTrackerFactory: FaceTrackerFactory,
+    private val getModelMetadataUseCase: GetModelMetadataUseCase
+) : ViewModel()
+```
+
+#### 5. Screen에서 ViewModel 사용
+
+```kotlin
+// 수정 전
+val container = LocalAppContainer.current
+val viewModel: StudioViewModel = viewModel(
+    factory = StudioViewModel.Factory(container.faceTrackerFactory, ...)
+)
+
+// 수정 후
+val viewModel: StudioViewModel = hiltViewModel()
+```
+
+### 삭제된 파일
+
+| 파일 | 이유 |
+|------|------|
+| `core/common/di/AppContainer.kt` | Hilt Module로 대체 |
+| `core/common/di/LocalAppContainer.kt` | hiltViewModel()로 대체 |
+| `app/di/AppContainerImpl.kt` | Hilt Module로 대체 |
+
+### 관련 파일
+
+**신규 생성**
+| 파일 | 위치 | 설명 |
+|------|------|------|
+| `AppModule.kt` | core/common/di | 공통 의존성 제공 |
+| `StorageModule.kt` | core/storage/di | 저장소 의존성 제공 |
+| `RepositoryModule.kt` | data/di | Repository 바인딩 |
+| `UseCaseModule.kt` | data/di | UseCase 제공 |
+
+**수정됨**
+| 파일 | 변경 내용 |
+|------|----------|
+| `LiveMotionApp.kt` | `@HiltAndroidApp` 추가 |
+| `MainActivity.kt` | `@AndroidEntryPoint` 추가, CompositionLocalProvider 제거 |
+| `StudioViewModel.kt` | `@HiltViewModel`, `@Inject constructor` |
+| `ModelSelectViewModel.kt` | `@HiltViewModel`, `@Inject constructor` |
+| `StudioScreen.kt` | `hiltViewModel()` 사용 |
+| `ModelSelectScreen.kt` | `hiltViewModel()` 사용 |
+| `build.gradle.kts` (여러 모듈) | Hilt, KSP 의존성 추가 |
+
+---
+
+## 23. MVI 패턴 완성 (UiIntent/UiEffect) (2026-02-02 업데이트)
+
+### 배경
+- 기존에는 ViewModel에 개별 함수들이 분산되어 있어 사용자 액션 추적이 어려움
+- 일회성 이벤트(스낵바, 네비게이션) 처리가 UiState에 혼재
+- MVI 패턴의 Intent/Effect 계층이 없어 불완전한 구조
+
+### 구현 내용
+
+#### 1. UiIntent 정의
+
+사용자 액션을 sealed interface로 정의:
+
+```kotlin
+// feature/studio/src/main/java/org/comon/studio/StudioUiIntent.kt
+sealed interface StudioUiIntent {
+    data object ToggleZoom : StudioUiIntent
+    data object ToggleMove : StudioUiIntent
+    data object TogglePreview : StudioUiIntent
+    data class SetGpuEnabled(val enabled: Boolean) : StudioUiIntent
+    data object ShowExpressionDialog : StudioUiIntent
+    data object ShowMotionDialog : StudioUiIntent
+    data object DismissDialog : StudioUiIntent
+    data object ClearTrackingError : StudioUiIntent
+    data object ClearDomainError : StudioUiIntent
+    data object OnModelLoaded : StudioUiIntent
+}
+```
+
+```kotlin
+// feature/studio/src/main/java/org/comon/studio/ModelSelectUiIntent.kt
+sealed interface ModelSelectUiIntent {
+    data object LoadModels : ModelSelectUiIntent
+    data class ImportModel(val folderUri: String) : ModelSelectUiIntent
+    data class EnterDeleteMode(val initialModelId: String) : ModelSelectUiIntent
+    data object ExitDeleteMode : ModelSelectUiIntent
+    data class ToggleModelSelection(val modelId: String) : ModelSelectUiIntent
+    data object DeleteSelectedModels : ModelSelectUiIntent
+    data object ClearError : ModelSelectUiIntent
+}
+```
+
+#### 2. UiEffect 정의
+
+일회성 이벤트를 sealed class로 정의:
+
+```kotlin
+// feature/studio/src/main/java/org/comon/studio/StudioUiEffect.kt
+sealed class StudioUiEffect {
+    data class ShowSnackbar(
+        val message: String,
+        val actionLabel: String? = null
+    ) : StudioUiEffect()
+
+    data object NavigateBack : StudioUiEffect()
+}
+```
+
+```kotlin
+// feature/studio/src/main/java/org/comon/studio/ModelSelectUiEffect.kt
+sealed class ModelSelectUiEffect {
+    data class ShowSnackbar(val message: String) : ModelSelectUiEffect()
+    data class NavigateToStudio(val modelSource: ModelSource) : ModelSelectUiEffect()
+}
+```
+
+#### 3. ViewModel에서 onIntent() 단일 진입점
+
+```kotlin
+@HiltViewModel
+class StudioViewModel @Inject constructor(...) : ViewModel() {
+
+    private val _uiEffect = Channel<StudioUiEffect>()
+    val uiEffect = _uiEffect.receiveAsFlow()
+
+    fun onIntent(intent: StudioUiIntent) {
+        when (intent) {
+            is StudioUiIntent.ToggleZoom -> toggleZoom()
+            is StudioUiIntent.ToggleMove -> toggleMove()
+            is StudioUiIntent.TogglePreview -> togglePreview()
+            is StudioUiIntent.SetGpuEnabled -> setGpuEnabled(intent.enabled)
+            is StudioUiIntent.ShowExpressionDialog -> showExpressionDialog()
+            is StudioUiIntent.ShowMotionDialog -> showMotionDialog()
+            is StudioUiIntent.DismissDialog -> dismissDialog()
+            is StudioUiIntent.ClearTrackingError -> clearTrackingError()
+            is StudioUiIntent.ClearDomainError -> clearDomainError()
+            is StudioUiIntent.OnModelLoaded -> onModelLoaded()
+        }
+    }
+
+    private fun toggleZoom() {
+        _uiState.update { it.copy(isZoomEnabled = !it.isZoomEnabled) }
+    }
+    // ...
+}
+```
+
+#### 4. Screen에서 Intent 사용
+
+```kotlin
+@Composable
+fun StudioScreen(
+    viewModel: StudioViewModel = hiltViewModel()
+) {
+    // Effect 수집
+    LaunchedEffect(Unit) {
+        viewModel.uiEffect.collect { effect ->
+            when (effect) {
+                is StudioUiEffect.ShowSnackbar -> {
+                    snackbarHostState.showSnackbar(effect.message)
+                }
+                is StudioUiEffect.NavigateBack -> onBack()
+            }
+        }
+    }
+
+    // Intent 전달
+    Button(onClick = { viewModel.onIntent(StudioUiIntent.ToggleZoom) }) {
+        Text("확대")
+    }
+}
+```
+
+### MVI 아키텍처 다이어그램
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         Screen                              │
+│  ┌─────────────────┐              ┌─────────────────────┐  │
+│  │   User Action   │──────────────│   UI Rendering      │  │
+│  └────────┬────────┘              └──────────▲──────────┘  │
+│           │                                   │             │
+│           │ onIntent(Intent)                  │ uiState     │
+│           │                                   │             │
+└───────────┼───────────────────────────────────┼─────────────┘
+            │                                   │
+            ▼                                   │
+┌─────────────────────────────────────────────────────────────┐
+│                       ViewModel                             │
+│  ┌─────────────────┐              ┌─────────────────────┐  │
+│  │    onIntent()   │──────────────│   _uiState.update   │  │
+│  │   when(intent)  │              │                     │  │
+│  └─────────────────┘              └─────────────────────┘  │
+│           │                                                 │
+│           │ Channel.send(Effect)                           │
+│           ▼                                                 │
+│  ┌─────────────────┐                                       │
+│  │    uiEffect     │────────────────────────────────────►  │
+│  │    (Channel)    │              Side Effects (Snackbar)  │
+│  └─────────────────┘                                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 관련 파일
+
+**신규 생성**
+| 파일 | 위치 | 설명 |
+|------|------|------|
+| `StudioUiIntent.kt` | feature/studio | Studio 화면 Intent |
+| `StudioUiEffect.kt` | feature/studio | Studio 화면 Effect |
+| `ModelSelectUiIntent.kt` | feature/studio | ModelSelect 화면 Intent |
+| `ModelSelectUiEffect.kt` | feature/studio | ModelSelect 화면 Effect |
+
+**수정됨**
+| 파일 | 변경 내용 |
+|------|----------|
+| `StudioViewModel.kt` | `onIntent()` 단일 진입점, `uiEffect` Channel |
+| `ModelSelectViewModel.kt` | `onIntent()` 단일 진입점, `uiEffect` Channel |
+| `StudioScreen.kt` | `viewModel.onIntent()` 호출로 변경 |
+| `ModelSelectScreen.kt` | `viewModel.onIntent()` 호출로 변경 |
+
+---
+
+## 24. Feature 모듈 분리 (2026-02-02 업데이트)
+
+### 배경
+- 기존에는 `feature:studio` 모듈에 Studio, ModelSelect, Title, Settings, Intro 화면이 모두 포함
+- 단일 책임 원칙 위반 (하나의 모듈이 여러 기능 담당)
+- 빈 `feature:settings` 모듈이 존재했으나 미사용
+
+### 구현 내용
+
+#### 변경 전 구조
+
+```
+feature/
+├── studio/              # 모든 화면 포함
+│   ├── StudioScreen.kt
+│   ├── ModelSelectScreen.kt
+│   ├── TitleScreen.kt           # ❌ Studio와 무관
+│   ├── SettingsScreen.kt        # ❌ Studio와 무관
+│   └── CubismIntroScreen.kt     # ❌ Studio와 무관
+│
+├── settings/            # 빈 모듈
+└── home/                # 미사용
+```
+
+#### 변경 후 구조
+
+```
+feature/
+├── home/                        # 앱 진입점
+│   ├── TitleScreen.kt
+│   ├── IntroScreen.kt           # CubismIntroScreen → IntroScreen 리네임
+│   └── res/
+│       ├── drawable/
+│       │   ├── title_image.png
+│       │   └── cubism_logo_orange.png
+│       └── values/strings.xml
+│
+├── settings/                    # 설정 화면
+│   ├── SettingsScreen.kt
+│   └── res/values/strings.xml
+│
+└── studio/                      # Live2D 스튜디오
+    ├── StudioScreen.kt
+    ├── StudioViewModel.kt
+    ├── StudioUiIntent.kt
+    ├── StudioUiEffect.kt
+    ├── ModelSelectScreen.kt
+    ├── ModelSelectViewModel.kt
+    ├── ModelSelectUiIntent.kt
+    ├── ModelSelectUiEffect.kt
+    └── res/values/strings.xml
+```
+
+#### 모듈별 책임
+
+| 모듈 | 책임 | 화면 |
+|------|------|------|
+| `feature:home` | 앱 진입점, 메뉴 | IntroScreen, TitleScreen |
+| `feature:settings` | 앱 설정 | SettingsScreen |
+| `feature:studio` | Live2D 렌더링, 모델 선택 | StudioScreen, ModelSelectScreen |
+
+#### build.gradle.kts 변경
+
+**feature:home**:
+```kotlin
+plugins {
+    alias(libs.plugins.kotlin.compose)
+}
+
+dependencies {
+    implementation(project(":core:ui"))
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.material3)
+}
+```
+
+**feature:settings**:
+```kotlin
+plugins {
+    alias(libs.plugins.kotlin.compose)
+}
+
+dependencies {
+    implementation(project(":core:ui"))
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.material3)
+    implementation(libs.androidx.material.icons.core)
+}
+```
+
+**app**:
+```kotlin
+dependencies {
+    implementation(project(":feature:studio"))
+    implementation(project(":feature:home"))      // 추가
+    implementation(project(":feature:settings"))  // 추가
+}
+```
+
+#### MainActivity.kt import 변경
+
+```kotlin
+// 변경 전
+import org.comon.studio.CubismIntroScreen
+import org.comon.studio.TitleScreen
+import org.comon.studio.SettingsScreen
+
+// 변경 후
+import org.comon.home.IntroScreen
+import org.comon.home.TitleScreen
+import org.comon.settings.SettingsScreen
+```
+
+#### 문자열 리소스 분리
+
+**feature:home/res/values/strings.xml**:
+```xml
+<resources>
+    <string name="title_studio">Studio</string>
+    <string name="title_settings">Settings</string>
+    <string name="title_background_description">Title Background</string>
+    <string name="intro_logo_description">Cubism Logo</string>
+</resources>
+```
+
+**feature:settings/res/values/strings.xml**:
+```xml
+<resources>
+    <string name="settings_title">Settings</string>
+    <string name="settings_back">Back</string>
+    <string name="settings_coming_soon">Coming Soon</string>
+</resources>
+```
+
+### 이점
+
+1. **단일 책임**: 각 모듈이 하나의 기능만 담당
+2. **독립적 개발**: 모듈별로 독립적인 빌드/테스트 가능
+3. **의존성 최소화**: 각 모듈은 필요한 의존성만 포함
+4. **빌드 시간 단축**: 변경된 모듈만 재빌드
+
+### 관련 파일
+
+**신규 생성**
+| 파일 | 위치 | 설명 |
+|------|------|------|
+| `TitleScreen.kt` | feature/home | Title 화면 (이동) |
+| `IntroScreen.kt` | feature/home | Intro 화면 (이동 + 리네임) |
+| `strings.xml` | feature/home/res/values | 문자열 리소스 |
+| `SettingsScreen.kt` | feature/settings | Settings 화면 (이동) |
+| `strings.xml` | feature/settings/res/values | 문자열 리소스 |
+
+**수정됨**
+| 파일 | 변경 내용 |
+|------|----------|
+| `feature/home/build.gradle.kts` | Compose 의존성 추가 |
+| `feature/settings/build.gradle.kts` | Compose 의존성 추가 |
+| `feature/studio/res/values/strings.xml` | 이동된 문자열 제거 |
+| `app/build.gradle.kts` | feature:home, feature:settings 의존성 추가 |
+| `MainActivity.kt` | import 경로 변경 |
+
+**삭제됨**
+| 파일 | 이유 |
+|------|------|
+| `feature/studio/TitleScreen.kt` | feature:home으로 이동 |
+| `feature/studio/SettingsScreen.kt` | feature:settings로 이동 |
+| `feature/studio/CubismIntroScreen.kt` | feature:home으로 이동 (IntroScreen으로 리네임) |
+| `feature/studio/res/drawable/title_image.png` | feature:home으로 이동 |
+| `feature/studio/res/drawable/cubism_logo_orange.png` | feature:home으로 이동 |
+
+---
+
+## 25. MapFacePoseUseCase 순수 함수화 (2026-02-02 업데이트)
+
+### 배경
+- 기존 `MapFacePoseUseCase`는 EMA 스무딩을 위해 내부에 `lastPose` 상태를 보유
+- UseCase가 상태를 가지면 테스트가 어렵고, 여러 ViewModel에서 공유 시 문제 발생
+- Clean Architecture 원칙: UseCase는 순수 함수여야 함
+
+### 구현 내용
+
+#### 1. 스무딩 상태 분리
+
+```kotlin
+// domain/src/main/java/org/comon/domain/model/FacePoseSmoothing.kt
+/**
+ * FacePose EMA 스무딩 상태를 저장하는 데이터 클래스.
+ *
+ * MapFacePoseUseCase가 순수 함수가 되도록 상태를 분리했습니다.
+ */
+data class FacePoseSmoothingState(
+    val lastPose: FacePose = FacePose()
+)
+```
+
+#### 2. UseCase 순수 함수화
+
+```kotlin
+// 변경 전 (상태 보유)
+class MapFacePoseUseCase {
+    private var lastPose = FacePose()  // ❌ 상태
+    private val alpha = 0.4f
+
+    fun reset() { lastPose = FacePose() }
+
+    operator fun invoke(facePose: FacePose, hasLandmarks: Boolean): Live2DParams {
+        // lastPose 사용 및 업데이트
+    }
+}
+
+// 변경 후 (순수 함수)
+class MapFacePoseUseCase {
+    private val alpha = 0.4f
+
+    /**
+     * FacePose를 Live2D 파라미터로 변환합니다.
+     *
+     * @param facePose 얼굴 포즈 데이터
+     * @param state 이전 스무딩 상태
+     * @param hasLandmarks 얼굴 랜드마크 감지 여부
+     * @return Pair<Live2DParams, FacePoseSmoothingState> - 변환된 파라미터와 새로운 상태
+     */
+    operator fun invoke(
+        facePose: FacePose,
+        state: FacePoseSmoothingState,
+        hasLandmarks: Boolean
+    ): Pair<Live2DParams, FacePoseSmoothingState> {
+        if (!hasLandmarks) {
+            return Pair(Live2DParams.DEFAULT, FacePoseSmoothingState())
+        }
+        return map(facePose, state)
+    }
+}
+```
+
+#### 3. ViewModel에서 상태 관리
+
+```kotlin
+@HiltViewModel
+class StudioViewModel @Inject constructor(
+    private val faceTrackerFactory: FaceTrackerFactory,
+    private val getModelMetadataUseCase: GetModelMetadataUseCase
+) : ViewModel() {
+
+    // MapFacePoseUseCase는 순수 함수, 상태는 ViewModel에서 관리
+    private val mapFacePoseUseCase = MapFacePoseUseCase()
+    private var smoothingState = FacePoseSmoothingState()
+
+    /**
+     * 얼굴 포즈 데이터를 Live2D 파라미터 맵으로 변환합니다.
+     */
+    fun mapFaceParams(facePose: FacePose, hasLandmarks: Boolean): Map<String, Float> {
+        val (params, newState) = mapFacePoseUseCase(facePose, smoothingState, hasLandmarks)
+        smoothingState = newState
+        return params.params
+    }
+}
+```
+
+### 순수 함수의 특징
+
+| 특징 | 설명 |
+|------|------|
+| **입력 결정성** | 동일한 입력에 항상 동일한 출력 |
+| **부수 효과 없음** | 외부 상태 변경 없음 |
+| **테스트 용이** | Mock 없이 단순 입출력 테스트 |
+| **스레드 안전** | 상태가 없으므로 동시성 문제 없음 |
+
+### 이점
+
+1. **테스트 용이성**: 순수 함수이므로 단위 테스트가 간단
+```kotlin
+@Test
+fun `mapFacePose returns default when no landmarks`() {
+    val useCase = MapFacePoseUseCase()
+    val (params, _) = useCase(FacePose(), FacePoseSmoothingState(), hasLandmarks = false)
+    assertEquals(Live2DParams.DEFAULT, params)
+}
+```
+
+2. **재사용성**: 상태가 없으므로 싱글톤으로 공유 가능 (Hilt @Singleton 불필요)
+
+3. **예측 가능성**: 이전 호출이 다음 호출에 영향 없음
+
+### 관련 파일
+
+**신규 생성**
+| 파일 | 위치 | 설명 |
+|------|------|------|
+| `FacePoseSmoothing.kt` | domain/model | 스무딩 상태 데이터 클래스 |
+
+**수정됨**
+| 파일 | 변경 내용 |
+|------|----------|
+| `MapFacePoseUseCase.kt` | 순수 함수로 변환, `Pair<Live2DParams, State>` 반환 |
+| `StudioViewModel.kt` | `smoothingState` 필드 추가, UseCase 호출 방식 변경 |
 

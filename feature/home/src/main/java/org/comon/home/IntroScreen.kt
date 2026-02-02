@@ -1,4 +1,4 @@
-package org.comon.studio
+package org.comon.home
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -12,11 +12,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import org.comon.ui.theme.LiveMotionTheme
 
 @Composable
-fun CubismIntroScreen(
+fun IntroScreen(
     onTimeout: () -> Unit
 ) {
     LaunchedEffect(Unit) {
@@ -32,10 +35,18 @@ fun CubismIntroScreen(
     ) {
         Image(
             painter = painterResource(id = R.drawable.cubism_logo_orange),
-            contentDescription = "Cubism Logo",
+            contentDescription = stringResource(R.string.intro_logo_description),
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 48.dp)
         )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+private fun IntroScreenPreview() {
+    LiveMotionTheme {
+        IntroScreen(onTimeout = {})
     }
 }

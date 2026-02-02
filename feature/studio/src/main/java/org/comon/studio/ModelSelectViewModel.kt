@@ -1,29 +1,56 @@
 package org.comon.studio
 
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.comon.domain.model.ModelSource
 import org.comon.domain.usecase.DeleteExternalModelsUseCase
 import org.comon.domain.usecase.GetAllModelsUseCase
 import org.comon.domain.usecase.ImportExternalModelUseCase
+import javax.inject.Inject
 
 /**
- * 모델 선택 화면의 ViewModel
+ * 모델 선택 화면의 상태 관리 및 비즈니스 로직을 담당하는 ViewModel.
+ *
+ * ## 책임
+ * - Asset 및 External 모델 목록 조회
+ * - SAF를 통한 외부 모델 가져오기 (검증, 캐싱)
+ * - 모델 삭제 (다중 선택 지원)
+ * - 삭제 모드 상태 관리
+ *
+ * ## MVI 패턴
+ * - Intent: [ModelSelectUiIntent]를 통해 사용자 액션 전달
+ * - State: [UiState]로 단일 UI 상태 관리
+ * - Effect: [uiEffect]로 일회성 이벤트 처리 (스낵바 등)
+ *
+ * @property getAllModelsUseCase 모든 모델 목록 조회 UseCase
+ * @property importExternalModelUseCase 외부 모델 가져오기 UseCase
+ * @property deleteExternalModelsUseCase 외부 모델 삭제 UseCase
  */
-class ModelSelectViewModel(
+@HiltViewModel
+class ModelSelectViewModel @Inject constructor(
     private val getAllModelsUseCase: GetAllModelsUseCase,
     private val importExternalModelUseCase: ImportExternalModelUseCase,
     private val deleteExternalModelsUseCase: DeleteExternalModelsUseCase
 ) : ViewModel() {
 
     /**
-     * UI 상태
+     * 모델 선택 화면의 UI 상태.
+     *
+     * @property models 표시할 모델 목록 (Asset + External)
+     * @property isLoading 모델 목록 로딩 중 여부
+     * @property importProgress 모델 가져오기 진행률 (0.0~1.0, null이면 가져오기 중 아님)
+     * @property error 에러 메시지 (null이면 에러 없음)
+     * @property isDeleteMode 삭제 모드 활성화 여부
+     * @property selectedModelIds 삭제를 위해 선택된 모델 ID 집합
+     * @property isDeleting 삭제 진행 중 여부
      */
     data class UiState(
         val models: List<ModelSource> = emptyList(),
@@ -38,14 +65,36 @@ class ModelSelectViewModel(
     private val _uiState = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
 
+    private val _uiEffect = Channel<ModelSelectUiEffect>()
+    val uiEffect = _uiEffect.receiveAsFlow()
+
     init {
         loadModels()
     }
 
     /**
+     * UI Intent를 처리합니다.
+     *
+     * MVI 패턴에서 사용자 액션(Intent)을 받아 적절한 상태 변경을 수행합니다.
+     *
+     * @param intent 처리할 사용자 의도
+     */
+    fun onIntent(intent: ModelSelectUiIntent) {
+        when (intent) {
+            is ModelSelectUiIntent.LoadModels -> loadModels()
+            is ModelSelectUiIntent.ImportModel -> importModel(intent.folderUri)
+            is ModelSelectUiIntent.EnterDeleteMode -> enterDeleteMode(intent.initialModelId)
+            is ModelSelectUiIntent.ExitDeleteMode -> exitDeleteMode()
+            is ModelSelectUiIntent.ToggleModelSelection -> toggleModelSelection(intent.modelId)
+            is ModelSelectUiIntent.DeleteSelectedModels -> deleteSelectedModels()
+            is ModelSelectUiIntent.ClearError -> clearError()
+        }
+    }
+
+    /**
      * 모든 모델(Asset + External)을 로드합니다.
      */
-    fun loadModels() {
+    private fun loadModels() {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true) }
             getAllModelsUseCase()
@@ -62,7 +111,7 @@ class ModelSelectViewModel(
      * 외부 모델을 가져옵니다.
      * @param folderUri SAF document tree URI
      */
-    fun importModel(folderUri: String) {
+    private fun importModel(folderUri: String) {
         viewModelScope.launch {
             _uiState.update { it.copy(importProgress = 0f) }
 
@@ -82,7 +131,7 @@ class ModelSelectViewModel(
     /**
      * 에러 메시지를 초기화합니다.
      */
-    fun clearError() {
+    private fun clearError() {
         _uiState.update { it.copy(error = null) }
     }
 
@@ -90,7 +139,7 @@ class ModelSelectViewModel(
      * 삭제 모드를 활성화합니다.
      * @param initialModelId 처음 선택할 모델 ID (길게 눌렀을 때)
      */
-    fun enterDeleteMode(initialModelId: String) {
+    private fun enterDeleteMode(initialModelId: String) {
         _uiState.update {
             it.copy(
                 isDeleteMode = true,
@@ -102,7 +151,7 @@ class ModelSelectViewModel(
     /**
      * 삭제 모드를 종료합니다.
      */
-    fun exitDeleteMode() {
+    private fun exitDeleteMode() {
         _uiState.update {
             it.copy(
                 isDeleteMode = false,
@@ -114,7 +163,7 @@ class ModelSelectViewModel(
     /**
      * 모델 선택 상태를 토글합니다.
      */
-    fun toggleModelSelection(modelId: String) {
+    private fun toggleModelSelection(modelId: String) {
         _uiState.update { state ->
             val newSelection = if (modelId in state.selectedModelIds) {
                 state.selectedModelIds - modelId
@@ -128,7 +177,7 @@ class ModelSelectViewModel(
     /**
      * 선택된 모델들을 삭제합니다.
      */
-    fun deleteSelectedModels() {
+    private fun deleteSelectedModels() {
         val selectedIds = _uiState.value.selectedModelIds.toList()
         if (selectedIds.isEmpty()) return
 
@@ -157,21 +206,4 @@ class ModelSelectViewModel(
         }
     }
 
-    /**
-     * Factory for creating ModelSelectViewModel
-     */
-    class Factory(
-        private val getAllModelsUseCase: GetAllModelsUseCase,
-        private val importExternalModelUseCase: ImportExternalModelUseCase,
-        private val deleteExternalModelsUseCase: DeleteExternalModelsUseCase
-    ) : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return ModelSelectViewModel(
-                getAllModelsUseCase,
-                importExternalModelUseCase,
-                deleteExternalModelsUseCase
-            ) as T
-        }
-    }
 }
