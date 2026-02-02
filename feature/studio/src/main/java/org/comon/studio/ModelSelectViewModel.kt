@@ -103,6 +103,7 @@ class ModelSelectViewModel @Inject constructor(
                 }
                 .onError { error ->
                     _uiState.update { it.copy(error = error.message, isLoading = false) }
+                    _uiEffect.trySend(ModelSelectUiEffect.ShowSnackbar(error.message))
                 }
         }
     }
@@ -124,6 +125,7 @@ class ModelSelectViewModel @Inject constructor(
                 _uiState.update {
                     it.copy(importProgress = null, error = error.message)
                 }
+                _uiEffect.trySend(ModelSelectUiEffect.ShowSnackbar(error.message))
             }
         }
     }
@@ -202,6 +204,7 @@ class ModelSelectViewModel @Inject constructor(
                             error = error.message
                         )
                     }
+                    _uiEffect.trySend(ModelSelectUiEffect.ShowSnackbar(error.message))
                 }
         }
     }

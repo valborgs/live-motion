@@ -40,6 +40,7 @@ import org.comon.home.TitleScreen
 import org.comon.settings.SettingsScreen
 import org.comon.studio.ModelSelectScreen
 import org.comon.studio.StudioScreen
+import org.comon.livemotion.navigation.AppNavigatorImpl
 import org.comon.ui.theme.LiveMotionTheme
 
 @AndroidEntryPoint
@@ -114,6 +115,7 @@ class MainActivity : ComponentActivity() {
 
         if (hasCameraPermission) {
             val navController = rememberNavController()
+            val navigator = remember(navController) { AppNavigatorImpl(navController) }
 
             NavHost(
                 navController = navController,
@@ -121,28 +123,18 @@ class MainActivity : ComponentActivity() {
             ) {
                 composable<NavKey.Intro> {
                     IntroScreen(
-                        onTimeout = {
-                            navController.navigate(NavKey.Title) {
-                                popUpTo(NavKey.Intro) { inclusive = true }
-                            }
-                        }
+                        onTimeout = { navigator.navigateToTitle() }
                     )
                 }
                 composable<NavKey.Title> {
                     TitleScreen(
-                        onStudioClick = {
-                            navController.navigate(NavKey.ModelSelect)
-                        },
-                        onSettingsClick = {
-                            navController.navigate(NavKey.Settings)
-                        }
+                        onStudioClick = { navigator.navigateToModelSelect() },
+                        onSettingsClick = { navigator.navigateToSettings() }
                     )
                 }
                 composable<NavKey.Settings> {
                     SettingsScreen(
-                        onBack = {
-                            navController.popBackStack()
-                        }
+                        onBack = { navigator.back() }
                     )
                 }
                 composable<NavKey.ModelSelect> { backStackEntry ->
@@ -152,25 +144,7 @@ class MainActivity : ComponentActivity() {
                         .collectAsState()
 
                     ModelSelectScreen(
-                        onModelSelected = { modelSource ->
-                            when (modelSource) {
-                                is ModelSource.Asset -> {
-                                    navController.navigate(
-                                        NavKey.Studio(modelId = modelSource.modelId)
-                                    )
-                                }
-                                is ModelSource.External -> {
-                                    navController.navigate(
-                                        NavKey.Studio(
-                                            modelId = modelSource.model.id,
-                                            isExternal = true,
-                                            cachePath = modelSource.model.cachePath,
-                                            modelJsonName = modelSource.model.modelJsonName
-                                        )
-                                    )
-                                }
-                            }
-                        },
+                        onModelSelected = { modelSource -> navigator.navigateToStudio(modelSource) },
                         errorMessage = errorMessage,
                         onErrorConsumed = {
                             // 에러 메시지 소비 후 제거
@@ -215,15 +189,8 @@ class MainActivity : ComponentActivity() {
 
                     StudioScreen(
                         modelSource = modelSource,
-                        onBack = {
-                            navController.popBackStack()
-                        },
-                        onError = { errorMessage ->
-                            // 이전 화면(ModelSelect)의 savedStateHandle에 에러 메시지 저장
-                            navController.previousBackStackEntry
-                                ?.savedStateHandle
-                                ?.set("model_load_error", errorMessage)
-                        }
+                        onBack = { navigator.back() },
+                        onError = { errorMessage -> navigator.backWithError(errorMessage) }
                     )
                 }
             }

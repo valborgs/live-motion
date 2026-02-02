@@ -47,12 +47,31 @@ fun ModelSelectScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    // SAF 권한 관리자
-    val safPermissionManager = remember { SAFPermissionManager(context) }
-
     // 에러 상세 다이얼로그 상태
     var showErrorDetailDialog by remember { mutableStateOf(false) }
     var currentErrorDetail by remember { mutableStateOf<String?>(null) }
+
+    // UI Effect 처리
+    LaunchedEffect(Unit) {
+        viewModel.uiEffect.collect { effect ->
+            when (effect) {
+                is ModelSelectUiEffect.ShowSnackbar -> {
+                    snackbarHostState.showSnackbar(
+                        message = effect.message,
+                        actionLabel = effect.actionLabel,
+                        duration = SnackbarDuration.Short
+                    )
+                }
+                is ModelSelectUiEffect.ShowErrorDetail -> {
+                    currentErrorDetail = effect.errorMessage
+                    showErrorDetailDialog = true
+                }
+            }
+        }
+    }
+
+    // SAF 권한 관리자
+    val safPermissionManager = remember { SAFPermissionManager(context) }
 
     // 삭제 확인 다이얼로그 상태
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }

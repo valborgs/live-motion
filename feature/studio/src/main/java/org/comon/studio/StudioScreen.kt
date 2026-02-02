@@ -47,6 +47,22 @@ fun StudioScreen(
         viewModel.initialize(lifecycleOwner, modelSource)
     }
 
+    // UI Effect 처리
+    LaunchedEffect(Unit) {
+        viewModel.uiEffect.collect { effect ->
+            when (effect) {
+                is StudioUiEffect.ShowSnackbar -> {
+                    snackbarHostState.showSnackbar(
+                        message = effect.message,
+                        actionLabel = effect.actionLabel,
+                        duration = SnackbarDuration.Short
+                    )
+                }
+                is StudioUiEffect.NavigateBack -> onBack()
+            }
+        }
+    }
+
     // 실시간 트래킹 데이터 (별도 collect)
     val facePose by viewModel.facePose.collectAsStateWithLifecycle()
     val landmarks by viewModel.faceLandmarks.collectAsStateWithLifecycle()

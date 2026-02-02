@@ -190,6 +190,7 @@ class StudioViewModel @Inject constructor(
                 }
                 .onError { error ->
                     _uiState.update { it.copy(domainError = error) }
+                    _uiEffect.trySend(StudioUiEffect.ShowSnackbar(error.message))
                 }
         }
     }
