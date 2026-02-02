@@ -17,7 +17,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import org.comon.ui.theme.LiveMotionTheme
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -255,20 +254,8 @@ fun StudioScreen(
                         modifier = Modifier
                             .size(100.dp, 130.dp)
                             .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Black)
                     ) {
-                        AndroidView(
-                            modifier = Modifier.fillMaxSize(),
-                            factory = { ctx ->
-                                androidx.camera.view.PreviewView(ctx).apply {
-                                    scaleType = androidx.camera.view.PreviewView.ScaleType.FILL_CENTER
-                                    viewModel.attachPreview(surfaceProvider)
-                                }
-                            },
-                            onRelease = {
-                                viewModel.detachPreview()
-                            }
-                        )
-
                         androidx.compose.foundation.Canvas(
                             modifier = Modifier.fillMaxSize()
                         ) {
