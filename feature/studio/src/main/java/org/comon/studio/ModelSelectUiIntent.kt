@@ -23,7 +23,4 @@ sealed interface ModelSelectUiIntent {
 
     /** 선택된 모델 삭제 */
     data object DeleteSelectedModels : ModelSelectUiIntent
-
-    /** 에러 초기화 */
-    data object ClearError : ModelSelectUiIntent
 }

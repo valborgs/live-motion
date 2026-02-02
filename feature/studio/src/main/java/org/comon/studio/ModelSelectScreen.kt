@@ -28,10 +28,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
-import kotlinx.coroutines.launch
 import org.comon.ui.theme.LiveMotionTheme
 import org.comon.domain.model.ModelSource
 import org.comon.storage.SAFPermissionManager
+import org.comon.ui.snackbar.ErrorDetailDialog
+import org.comon.ui.snackbar.rememberSnackbarStateHolder
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -44,27 +45,26 @@ fun ModelSelectScreen(
     val context = LocalContext.current
 
     val uiState by viewModel.uiState.collectAsState()
-    val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-
-    // 에러 상세 다이얼로그 상태
-    var showErrorDetailDialog by remember { mutableStateOf(false) }
-    var currentErrorDetail by remember { mutableStateOf<String?>(null) }
+    val snackbarState = rememberSnackbarStateHolder()
 
     // UI Effect 처리
+    val snackbarAction = stringResource(R.string.snackbar_action_detail)
     LaunchedEffect(Unit) {
         viewModel.uiEffect.collect { effect ->
             when (effect) {
                 is ModelSelectUiEffect.ShowSnackbar -> {
-                    snackbarHostState.showSnackbar(
+                    snackbarState.showSnackbar(
                         message = effect.message,
                         actionLabel = effect.actionLabel,
                         duration = SnackbarDuration.Short
                     )
                 }
-                is ModelSelectUiEffect.ShowErrorDetail -> {
-                    currentErrorDetail = effect.errorMessage
-                    showErrorDetailDialog = true
+                is ModelSelectUiEffect.ShowErrorWithDetail -> {
+                    snackbarState.showErrorWithDetail(
+                        displayMessage = effect.displayMessage,
+                        detailMessage = effect.detailMessage,
+                        actionLabel = snackbarAction
+                    )
                 }
             }
         }
@@ -89,43 +89,15 @@ fun ModelSelectScreen(
     }
 
     val snackbarMessage = stringResource(R.string.snackbar_model_load_failed)
-    val snackbarAction = stringResource(R.string.snackbar_action_detail)
-    // 외부 에러 메시지 처리
+    // 외부 에러 메시지 처리 (MainActivity로부터 전달된 에러)
     LaunchedEffect(errorMessage) {
         if (errorMessage != null) {
-            currentErrorDetail = errorMessage
-
-            scope.launch {
-                val result = snackbarHostState.showSnackbar(
-                    message = snackbarMessage,
-                    actionLabel = snackbarAction,
-                    duration = SnackbarDuration.Long
-                )
-                if (result == SnackbarResult.ActionPerformed) {
-                    showErrorDetailDialog = true
-                }
-            }
+            snackbarState.showErrorWithDetail(
+                displayMessage = snackbarMessage,
+                detailMessage = errorMessage,
+                actionLabel = snackbarAction
+            )
             onErrorConsumed()
-        }
-    }
-
-    val snackbarErrorMessage = stringResource(R.string.snackbar_error_occurred)
-    // ViewModel 에러 처리
-    LaunchedEffect(uiState.error) {
-        uiState.error?.let { error ->
-            currentErrorDetail = error
-
-            scope.launch {
-                val result = snackbarHostState.showSnackbar(
-                    message = snackbarErrorMessage,
-                    actionLabel = snackbarAction,
-                    duration = SnackbarDuration.Long
-                )
-                if (result == SnackbarResult.ActionPerformed) {
-                    showErrorDetailDialog = true
-                }
-            }
-            viewModel.onIntent(ModelSelectUiIntent.ClearError)
         }
     }
 
@@ -177,7 +149,7 @@ fun ModelSelectScreen(
                 )
             }
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { SnackbarHost(snackbarState.snackbarHostState) },
         floatingActionButton = {
             // 삭제 모드가 아닐 때만 FAB 표시
             if (!uiState.isDeleteMode) {
@@ -246,11 +218,15 @@ fun ModelSelectScreen(
     }
 
     // 에러 상세 다이얼로그
-    if (showErrorDetailDialog && currentErrorDetail != null) {
-        ErrorDetailDialog(
-            errorMessage = currentErrorDetail!!,
-            onDismiss = { showErrorDetailDialog = false }
-        )
+    if (snackbarState.showErrorDialog) {
+        snackbarState.currentErrorDetail?.let {
+            ErrorDetailDialog(
+                title = stringResource(R.string.dialog_error_detail_title),
+                errorMessage = it,
+                confirmButtonText = stringResource(R.string.button_confirm),
+                onDismiss = { snackbarState.dismissErrorDialog() }
+            )
+        }
     }
 
     // 삭제 확인 다이얼로그
@@ -390,53 +366,6 @@ private fun ImportProgressDialog(progress: Float) {
     }
 }
 
-@Composable
-private fun ErrorDetailDialog(
-    errorMessage: String,
-    onDismiss: () -> Unit
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.dialog_error_detail_title),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(
-                        text = errorMessage,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(12.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Button(
-                    onClick = onDismiss,
-                    modifier = Modifier.align(Alignment.End)
-                ) {
-                    Text(stringResource(R.string.button_confirm))
-                }
-            }
-        }
-    }
-}
 
 @Composable
 private fun DeleteConfirmDialog(

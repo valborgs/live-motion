@@ -47,7 +47,6 @@ class ModelSelectViewModel @Inject constructor(
      * @property models 표시할 모델 목록 (Asset + External)
      * @property isLoading 모델 목록 로딩 중 여부
      * @property importProgress 모델 가져오기 진행률 (0.0~1.0, null이면 가져오기 중 아님)
-     * @property error 에러 메시지 (null이면 에러 없음)
      * @property isDeleteMode 삭제 모드 활성화 여부
      * @property selectedModelIds 삭제를 위해 선택된 모델 ID 집합
      * @property isDeleting 삭제 진행 중 여부
@@ -56,7 +55,6 @@ class ModelSelectViewModel @Inject constructor(
         val models: List<ModelSource> = emptyList(),
         val isLoading: Boolean = false,
         val importProgress: Float? = null, // null이면 가져오기 중 아님
-        val error: String? = null,
         val isDeleteMode: Boolean = false,
         val selectedModelIds: Set<String> = emptySet(),
         val isDeleting: Boolean = false
@@ -87,7 +85,6 @@ class ModelSelectViewModel @Inject constructor(
             is ModelSelectUiIntent.ExitDeleteMode -> exitDeleteMode()
             is ModelSelectUiIntent.ToggleModelSelection -> toggleModelSelection(intent.modelId)
             is ModelSelectUiIntent.DeleteSelectedModels -> deleteSelectedModels()
-            is ModelSelectUiIntent.ClearError -> clearError()
         }
     }
 
@@ -102,8 +99,11 @@ class ModelSelectViewModel @Inject constructor(
                     _uiState.update { it.copy(models = models, isLoading = false) }
                 }
                 .onError { error ->
-                    _uiState.update { it.copy(error = error.message, isLoading = false) }
-                    _uiEffect.trySend(ModelSelectUiEffect.ShowSnackbar(error.message))
+                    _uiState.update { it.copy(isLoading = false) }
+                    _uiEffect.trySend(ModelSelectUiEffect.ShowErrorWithDetail(
+                        displayMessage = "오류가 발생했습니다",
+                        detailMessage = error.message
+                    ))
                 }
         }
     }
@@ -122,20 +122,15 @@ class ModelSelectViewModel @Inject constructor(
                 _uiState.update { it.copy(importProgress = null) }
                 loadModels() // 목록 새로고침
             }.onError { error ->
-                _uiState.update {
-                    it.copy(importProgress = null, error = error.message)
-                }
-                _uiEffect.trySend(ModelSelectUiEffect.ShowSnackbar(error.message))
+                _uiState.update { it.copy(importProgress = null) }
+                _uiEffect.trySend(ModelSelectUiEffect.ShowErrorWithDetail(
+                    displayMessage = "오류가 발생했습니다",
+                    detailMessage = error.message
+                ))
             }
         }
     }
 
-    /**
-     * 에러 메시지를 초기화합니다.
-     */
-    private fun clearError() {
-        _uiState.update { it.copy(error = null) }
-    }
 
     /**
      * 삭제 모드를 활성화합니다.
@@ -198,13 +193,11 @@ class ModelSelectViewModel @Inject constructor(
                     loadModels() // 목록 새로고침
                 }
                 .onError { error ->
-                    _uiState.update {
-                        it.copy(
-                            isDeleting = false,
-                            error = error.message
-                        )
-                    }
-                    _uiEffect.trySend(ModelSelectUiEffect.ShowSnackbar(error.message))
+                    _uiState.update { it.copy(isDeleting = false) }
+                    _uiEffect.trySend(ModelSelectUiEffect.ShowErrorWithDetail(
+                        displayMessage = "삭제 중 오류가 발생했습니다",
+                        detailMessage = error.message
+                    ))
                 }
         }
     }

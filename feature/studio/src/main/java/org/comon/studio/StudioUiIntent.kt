@@ -27,12 +27,6 @@ sealed interface StudioUiIntent {
     /** 다이얼로그 닫기 */
     data object DismissDialog : StudioUiIntent
 
-    /** 트래킹 에러 초기화 */
-    data object ClearTrackingError : StudioUiIntent
-
-    /** 도메인 에러 초기화 */
-    data object ClearDomainError : StudioUiIntent
-
     /** 모델 로딩 완료 */
     data object OnModelLoaded : StudioUiIntent
 }

@@ -93,10 +93,6 @@ class StudioViewModel @Inject constructor(
         // 트래킹 상태
         val isCalibrating: Boolean = false,
         val isGpuEnabled: Boolean = false,
-        val trackingError: TrackingError? = null,
-
-        // 도메인 에러 (UseCase에서 발생)
-        val domainError: DomainException? = null,
 
         // UI 토글
         val isZoomEnabled: Boolean = false,
@@ -154,7 +150,18 @@ class StudioViewModel @Inject constructor(
                 }
                 viewModelScope.launch {
                     tracker.error.collect { error ->
-                        _uiState.update { it.copy(trackingError = error) }
+                        error?.let { trackingError ->
+                            val errorMessage = when (trackingError) {
+                                is TrackingError.FaceLandmarkerInitError -> trackingError.message
+                                is TrackingError.CameraError -> trackingError.message
+                                is TrackingError.MediaPipeRuntimeError -> trackingError.message
+                            }
+                            _uiEffect.trySend(StudioUiEffect.ShowErrorWithDetail(
+                                displayMessage = "트래킹 오류가 발생했습니다",
+                                detailMessage = errorMessage
+                            ))
+                            tracker.clearError()
+                        }
                     }
                 }
 
@@ -183,13 +190,11 @@ class StudioViewModel @Inject constructor(
                             expressionsFolder = metadata.expressionsFolder,
                             motionsFolder = metadata.motionsFolder,
                             expressionFiles = metadata.expressionFiles,
-                            motionFiles = metadata.motionFiles,
-                            domainError = null
+                            motionFiles = metadata.motionFiles
                         )
                     }
                 }
                 .onError { error ->
-                    _uiState.update { it.copy(domainError = error) }
                     _uiEffect.trySend(StudioUiEffect.ShowSnackbar(error.message))
                 }
         }
@@ -227,8 +232,6 @@ class StudioViewModel @Inject constructor(
             is StudioUiIntent.ShowExpressionDialog -> showExpressionDialog()
             is StudioUiIntent.ShowMotionDialog -> showMotionDialog()
             is StudioUiIntent.DismissDialog -> dismissDialog()
-            is StudioUiIntent.ClearTrackingError -> clearTrackingError()
-            is StudioUiIntent.ClearDomainError -> clearDomainError()
             is StudioUiIntent.OnModelLoaded -> onModelLoaded()
         }
     }
@@ -266,15 +269,6 @@ class StudioViewModel @Inject constructor(
 
     private fun onModelLoaded() {
         _uiState.update { it.copy(isModelLoading = false) }
-    }
-
-    private fun clearTrackingError() {
-        faceTracker?.clearError()
-        _uiState.update { it.copy(trackingError = null) }
-    }
-
-    private fun clearDomainError() {
-        _uiState.update { it.copy(domainError = null) }
     }
 
     /**

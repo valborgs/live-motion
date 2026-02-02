@@ -33,6 +33,7 @@
 23. [MVI 패턴 완성 (UiIntent/UiEffect)](#23-mvi-패턴-완성-uiintentuieffect-2026-02-02-업데이트)
 24. [Feature 모듈 분리](#24-feature-모듈-분리-2026-02-02-업데이트)
 25. [MapFacePoseUseCase 순수 함수화](#25-mapfaceposeusecase-순수-함수화-2026-02-02-업데이트)
+26. [스낵바 로직 리팩토링 및 SnackbarStateHolder](#26-스낵바-로직-리팩토링-및-snackbarstateholder-2026-02-02-업데이트)
 
 ---
 
@@ -2419,3 +2420,102 @@ fun `mapFacePose returns default when no landmarks`() {
 | `MapFacePoseUseCase.kt` | 순수 함수로 변환, `Pair<Live2DParams, State>` 반환 |
 | `StudioViewModel.kt` | `smoothingState` 필드 추가, UseCase 호출 방식 변경 |
 
+---
+
+## 26. 스낵바 로직 리팩토링 및 SnackbarStateHolder (2026-02-02 업데이트)
+
+### 배경
+- MVI 패턴에서 `UiState.error`와 `UiEffect.ShowSnackbar`가 중복으로 에러를 처리하고 있었음
+- Screen에서 스낵바 상태(`snackbarHostState`, `scope`, `showErrorDetailDialog`, `currentErrorDetail`)를 수동으로 관리
+- 동일한 패턴의 코드가 여러 화면에 중복
+
+### 구현 내용
+
+#### 1. MVI 에러 처리 통합
+`UiState.error`를 제거하고 모든 에러를 `UiEffect` 기반으로 통합:
+
+```kotlin
+// 변경 전: State와 Effect 중복
+data class UiState(
+    val error: String? = null  // 제거됨
+)
+
+// 변경 후: Effect만 사용
+sealed class ModelSelectUiEffect {
+    data class ShowSnackbar(val message: String) : ModelSelectUiEffect()
+    data class ShowErrorWithDetail(
+        val displayMessage: String,
+        val detailMessage: String
+    ) : ModelSelectUiEffect()
+}
+```
+
+#### 2. SnackbarStateHolder 상태 홀더
+스낵바와 에러 다이얼로그 상태를 통합 관리하는 컨테이너 클래스:
+
+```kotlin
+class SnackbarStateHolder(
+    val snackbarHostState: SnackbarHostState,
+    private val scope: CoroutineScope
+) {
+    var showErrorDialog by mutableStateOf(false)
+    var currentErrorDetail by mutableStateOf<String?>(null)
+
+    // 일반 스낵바 표시
+    fun showSnackbar(message: String, actionLabel: String?, duration: SnackbarDuration)
+
+    // 에러 스낵바 + 상세보기 다이얼로그
+    fun showErrorWithDetail(displayMessage: String, detailMessage: String, actionLabel: String)
+
+    // 다이얼로그 닫기
+    fun dismissErrorDialog()
+}
+
+@Composable
+fun rememberSnackbarStateHolder(): SnackbarStateHolder
+```
+
+#### 3. Screen 코드 단순화
+
+```kotlin
+// 변경 전: 5줄 이상의 수동 상태 관리
+val snackbarHostState = remember { SnackbarHostState() }
+val scope = rememberCoroutineScope()
+var showErrorDetailDialog by remember { mutableStateOf(false) }
+var currentErrorDetail by remember { mutableStateOf<String?>(null) }
+
+// 변경 후: 1줄
+val snackbarState = rememberSnackbarStateHolder()
+```
+
+Effect 처리도 단순화:
+```kotlin
+when (effect) {
+    is ShowSnackbar -> snackbarState.showSnackbar(...)
+    is ShowErrorWithDetail -> snackbarState.showErrorWithDetail(...)
+}
+```
+
+### 이점
+
+| 구분 | 변경 전 | 변경 후 |
+|------|---------|----------|
+| 에러 처리 | State + Effect 중복 | Effect 단일 |
+| 상태 관리 | 수동 (5개 변수) | 상태 홀더 (1개) |
+| 코드 중복 | 여러 Screen에 동일 패턴 | 공통 컴포넌트 재사용 |
+| Effect 블로킹 | `scope.launch` 수동 호출 | 상태 홀더 내부 처리 |
+
+### 관련 파일
+
+**신규/수정**
+| 파일 | 변경 내용 |
+|------|----------|
+| `SnackbarComponents.kt` | `SnackbarStateHolder` 추가, 미사용 클래스 제거 |
+| `StudioUiEffect.kt` | `ShowErrorWithDetail` 추가 |
+| `ModelSelectUiEffect.kt` | `ShowErrorWithDetail` 추가 |
+| `StudioViewModel.kt` | `trackingError`, `domainError` State 제거, Effect 발송 |
+| `ModelSelectViewModel.kt` | `error` State 제거, Effect 발송 |
+| `StudioUiIntent.kt` | `ClearTrackingError`, `ClearDomainError` 제거 |
+| `ModelSelectUiIntent.kt` | `ClearError` 제거 |
+| `StudioScreen.kt` | `rememberSnackbarStateHolder()` 사용 |
+| `ModelSelectScreen.kt` | `rememberSnackbarStateHolder()` 사용 |

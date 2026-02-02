@@ -21,11 +21,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.launch
 import org.comon.domain.model.ModelSource
 import org.comon.live2d.LAppMinimumLive2DManager
 import org.comon.live2d.Live2DScreen
-import org.comon.tracking.TrackingError
+import org.comon.ui.snackbar.ErrorDetailDialog
+import org.comon.ui.snackbar.rememberSnackbarStateHolder
 
 @Composable
 fun StudioScreen(
@@ -35,12 +35,7 @@ fun StudioScreen(
     viewModel: StudioViewModel = hiltViewModel()
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
-    val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-
-    // 에러 상세 다이얼로그 상태
-    var showErrorDetailDialog by remember { mutableStateOf(false) }
-    var currentErrorDetail by remember { mutableStateOf<String?>(null) }
+    val snackbarState = rememberSnackbarStateHolder()
 
     // 초기화
     LaunchedEffect(modelSource) {
@@ -48,14 +43,22 @@ fun StudioScreen(
     }
 
     // UI Effect 처리
+    val snackbarAction = stringResource(R.string.snackbar_action_detail)
     LaunchedEffect(Unit) {
         viewModel.uiEffect.collect { effect ->
             when (effect) {
                 is StudioUiEffect.ShowSnackbar -> {
-                    snackbarHostState.showSnackbar(
+                    snackbarState.showSnackbar(
                         message = effect.message,
                         actionLabel = effect.actionLabel,
                         duration = SnackbarDuration.Short
+                    )
+                }
+                is StudioUiEffect.ShowErrorWithDetail -> {
+                    snackbarState.showErrorWithDetail(
+                        displayMessage = effect.displayMessage,
+                        detailMessage = effect.detailMessage,
+                        actionLabel = snackbarAction
                     )
                 }
                 is StudioUiEffect.NavigateBack -> onBack()
@@ -69,32 +72,6 @@ fun StudioScreen(
 
     // UI 상태 (단일 State)
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-
-    val snackbarMessage = stringResource(R.string.studio_snackbar_tracking_error)
-    val snackbarAction = stringResource(R.string.snackbar_action_detail)
-
-    // 트래킹 에러 발생 시 스낵바 표시
-    LaunchedEffect(uiState.trackingError) {
-        uiState.trackingError?.let { error ->
-            val errorMessage = when (error) {
-                is TrackingError.FaceLandmarkerInitError -> error.message
-                is TrackingError.CameraError -> error.message
-                is TrackingError.MediaPipeRuntimeError -> error.message
-            }
-            currentErrorDetail = errorMessage
-            scope.launch {
-                val result = snackbarHostState.showSnackbar(
-                    message = snackbarMessage,
-                    actionLabel = snackbarAction,
-                    duration = SnackbarDuration.Long
-                )
-                if (result == SnackbarResult.ActionPerformed) {
-                    showErrorDetailDialog = true
-                }
-                viewModel.onIntent(StudioUiIntent.ClearTrackingError)
-            }
-        }
-    }
 
     // faceParams 계산
     val faceParams = remember(facePose, landmarks) {
@@ -297,7 +274,7 @@ fun StudioScreen(
 
         // 스낵바 호스트
         SnackbarHost(
-            hostState = snackbarHostState,
+            hostState = snackbarState.snackbarHostState,
             modifier = Modifier.align(Alignment.BottomCenter)
         )
     }
@@ -341,11 +318,15 @@ fun StudioScreen(
     }
 
     // 트래킹 에러 상세 다이얼로그
-    if (showErrorDetailDialog && currentErrorDetail != null) {
-        TrackingErrorDetailDialog(
-            errorMessage = currentErrorDetail!!,
-            onDismiss = { showErrorDetailDialog = false }
-        )
+    if (snackbarState.showErrorDialog) {
+        snackbarState.currentErrorDetail?.let {
+            ErrorDetailDialog(
+                title = stringResource(R.string.dialog_tracking_error_title),
+                errorMessage = it,
+                confirmButtonText = stringResource(R.string.button_confirm),
+                onDismiss = { snackbarState.dismissErrorDialog() }
+            )
+        }
     }
 }
 
@@ -470,57 +451,6 @@ fun FileListDialog(
     }
 }
 
-@Composable
-private fun TrackingErrorDetailDialog(
-    errorMessage: String,
-    onDismiss: () -> Unit
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.dialog_tracking_error_title),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(
-                        text = errorMessage,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(12.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Button(
-                    onClick = onDismiss,
-                    modifier = Modifier.align(Alignment.End),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(stringResource(R.string.button_confirm), color = MaterialTheme.colorScheme.onPrimary)
-                }
-            }
-        }
-    }
-}
 
 @Preview(name = "Light Mode", showBackground = true)
 @Preview(

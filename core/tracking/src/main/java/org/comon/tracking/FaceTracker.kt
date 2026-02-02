@@ -219,12 +219,14 @@ class FaceTracker(
                 val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
 
                 // 전면 카메라 존재 여부 확인
-                if (!cameraProvider!!.hasCamera(cameraSelector)) {
-                    Log.e(TAG, "❌ 전면 카메라가 없습니다")
-                    _error.value = TrackingError.CameraError(
-                        "전면 카메라를 찾을 수 없습니다. 이 앱은 전면 카메라가 필요합니다."
-                    )
-                    return@addListener
+                cameraProvider?.let {
+                    if (!it.hasCamera(cameraSelector)) {
+                        Log.e(TAG, "❌ 전면 카메라가 없습니다")
+                        _error.value = TrackingError.CameraError(
+                            "전면 카메라를 찾을 수 없습니다. 이 앱은 전면 카메라가 필요합니다."
+                        )
+                        return@addListener
+                    }
                 }
 
                 // 프리뷰 UseCase (초기에는 surfaceProvider 없음)
