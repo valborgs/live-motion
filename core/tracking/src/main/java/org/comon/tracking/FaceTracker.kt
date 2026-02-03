@@ -375,9 +375,8 @@ class FaceTracker(
 
     private fun calculatePose(landmarks: List<NormalizedLandmark>, scores: Map<String, Float>): FacePose {
 
-        // 주요 포인트: 코(4), 턱(152), 왼눈(33), 오른눈(263)
+        // 주요 포인트: 코(4), 왼눈(33), 오른눈(263)
         val nose = landmarks[4]
-        val chin = landmarks[152]
         val leftEye = landmarks[33]
         val rightEye = landmarks[263]
 
