@@ -1,6 +1,8 @@
 package org.comon.live2d
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -39,14 +41,17 @@ fun Live2DScreen(
     // 모델 소스 변경 시 GL Thread로 작업 큐잉
     LaunchedEffect(modelSource) {
         modelSource?.let { source ->
+            val mainHandler = Handler(Looper.getMainLooper())
             glView.queueEvent {
                 LAppMinimumLive2DManager.getInstance().setOnModelLoadListener(
                     object : LAppMinimumLive2DManager.OnModelLoadListener {
                         override fun onModelLoaded() {
-                            onModelLoaded?.invoke()
+                            // GL 스레드에서 호출되므로 메인 스레드로 전환
+                            mainHandler.post { onModelLoaded?.invoke() }
                         }
                         override fun onModelLoadError(error: String) {
-                            onModelLoadError?.invoke(error)
+                            // GL 스레드에서 호출되므로 메인 스레드로 전환
+                            mainHandler.post { onModelLoadError?.invoke(error) }
                         }
                     }
                 )
