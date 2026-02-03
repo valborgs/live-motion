@@ -7,16 +7,17 @@ import org.comon.domain.model.ExternalModel
 import org.comon.domain.model.Live2DModelInfo
 import org.comon.domain.model.ModelValidationResult
 import org.comon.domain.repository.IExternalModelRepository
-import java.io.File
 import org.comon.storage.ExternalModelMetadataStore
 import org.comon.storage.ModelCacheManager
+import org.comon.storage.SAFPermissionManager
 
 /**
  * 외부 모델 Repository 구현체
  */
 class ExternalModelRepositoryImpl(
     private val cacheManager: ModelCacheManager,
-    private val metadataStore: ExternalModelMetadataStore
+    private val metadataStore: ExternalModelMetadataStore,
+    private val safPermissionManager: SAFPermissionManager
 ) : IExternalModelRepository {
 
     override suspend fun listExternalModels(): Result<List<ExternalModel>> {
@@ -150,6 +151,11 @@ class ExternalModelRepositoryImpl(
 
     override suspend fun deleteModel(modelId: String): Result<Unit> {
         return try {
+            // 삭제 전에 메타데이터에서 URI를 가져와서 SAF 권한 해제
+            metadataStore.getModel(modelId)?.let { metadata ->
+                safPermissionManager.releasePermission(Uri.parse(metadata.originalUri))
+            }
+
             cacheManager.deleteCache(modelId)
             metadataStore.deleteModel(modelId)
             Result.success(Unit)

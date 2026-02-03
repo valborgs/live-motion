@@ -11,6 +11,7 @@ import org.comon.domain.repository.IExternalModelRepository
 import org.comon.domain.repository.IModelRepository
 import org.comon.storage.ExternalModelMetadataStore
 import org.comon.storage.ModelCacheManager
+import org.comon.storage.SAFPermissionManager
 import javax.inject.Singleton
 
 /**
@@ -32,8 +33,9 @@ object RepositoryModule {
     @Singleton
     fun provideExternalModelRepository(
         modelCacheManager: ModelCacheManager,
-        metadataStore: ExternalModelMetadataStore
+        metadataStore: ExternalModelMetadataStore,
+        safPermissionManager: SAFPermissionManager
     ): IExternalModelRepository {
-        return ExternalModelRepositoryImpl(modelCacheManager, metadataStore)
+        return ExternalModelRepositoryImpl(modelCacheManager, metadataStore, safPermissionManager)
     }
 }

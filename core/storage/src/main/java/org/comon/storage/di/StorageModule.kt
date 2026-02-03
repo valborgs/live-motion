@@ -8,6 +8,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import org.comon.storage.ExternalModelMetadataStore
 import org.comon.storage.ModelCacheManager
+import org.comon.storage.SAFPermissionManager
 import javax.inject.Singleton
 
 /**
@@ -31,5 +32,13 @@ object StorageModule {
         @ApplicationContext context: Context
     ): ExternalModelMetadataStore {
         return ExternalModelMetadataStore(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideSAFPermissionManager(
+        @ApplicationContext context: Context
+    ): SAFPermissionManager {
+        return SAFPermissionManager(context)
     }
 }
