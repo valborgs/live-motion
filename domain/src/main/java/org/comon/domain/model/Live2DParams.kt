@@ -23,7 +23,5 @@ data class Live2DParams(val params: Map<String, Float>) {
                 "ParamEyeBallY" to 0f
             )
         )
-
-        val EMPTY = Live2DParams(emptyMap())
     }
 }
