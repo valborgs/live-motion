@@ -14,9 +14,11 @@ import org.comon.domain.model.Live2DParams
  *
  * ## 사용 예시
  * ```kotlin
- * class StudioViewModel {
+ * @HiltViewModel
+ * class StudioViewModel @Inject constructor(
+ *     private val mapFacePoseUseCase: MapFacePoseUseCase
+ * ) : ViewModel() {
  *     private var smoothingState = FacePoseSmoothingState()
- *     private val mapFacePoseUseCase = MapFacePoseUseCase()
  *
  *     fun mapFaceParams(facePose: FacePose, hasLandmarks: Boolean): Map<String, Float> {
  *         val (params, newState) = mapFacePoseUseCase(facePose, smoothingState, hasLandmarks)

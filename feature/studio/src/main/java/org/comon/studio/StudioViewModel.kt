@@ -13,7 +13,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import org.comon.domain.common.DomainException
 import org.comon.domain.model.FacePose
 import org.comon.domain.model.FacePoseSmoothingState
 import org.comon.domain.model.ModelSource
@@ -50,11 +49,11 @@ import javax.inject.Inject
 @HiltViewModel
 class StudioViewModel @Inject constructor(
     private val faceTrackerFactory: FaceTrackerFactory,
-    private val getModelMetadataUseCase: GetModelMetadataUseCase
+    private val getModelMetadataUseCase: GetModelMetadataUseCase,
+    private val mapFacePoseUseCase: MapFacePoseUseCase
 ) : ViewModel() {
 
-    // MapFacePoseUseCase는 순수 함수, 상태는 ViewModel에서 관리
-    private val mapFacePoseUseCase = MapFacePoseUseCase()
+    // EMA 스무딩 상태 (ViewModel에서 관리)
     private var smoothingState = FacePoseSmoothingState()
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

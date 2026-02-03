@@ -11,6 +11,7 @@ import org.comon.domain.usecase.GetAllModelsUseCase
 import org.comon.domain.usecase.GetLive2DModelsUseCase
 import org.comon.domain.usecase.GetModelMetadataUseCase
 import org.comon.domain.usecase.ImportExternalModelUseCase
+import org.comon.domain.usecase.MapFacePoseUseCase
 import javax.inject.Singleton
 
 /**
@@ -60,5 +61,11 @@ object UseCaseModule {
         externalModelRepository: IExternalModelRepository
     ): DeleteExternalModelsUseCase {
         return DeleteExternalModelsUseCase(externalModelRepository)
+    }
+
+    @Provides
+    @Singleton
+    fun provideMapFacePoseUseCase(): MapFacePoseUseCase {
+        return MapFacePoseUseCase()
     }
 }
