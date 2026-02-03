@@ -1,6 +1,5 @@
 package org.comon.studio
 
-import androidx.camera.core.Preview.SurfaceProvider
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -60,9 +59,6 @@ class StudioViewModel @Inject constructor(
     // FaceTracker (configuration change에서 생존)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private var faceTracker: FaceTracker? = null
-
-    // FaceTracker 초기화 전에 attachPreview가 호출된 경우 대기
-    private var pendingSurfaceProvider: SurfaceProvider? = null
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 실시간 트래킹 데이터 (30fps) - 별도 Flow
@@ -167,12 +163,6 @@ class StudioViewModel @Inject constructor(
                 // FaceLandmarker 및 카메라 시작
                 tracker.setupFaceLandmarker(useGpu = false)
                 tracker.startCamera()
-
-                // 대기 중이던 프리뷰 연결
-                pendingSurfaceProvider?.let { surfaceProvider ->
-                    tracker.attachPreview(surfaceProvider)
-                    pendingSurfaceProvider = null
-                }
             }
         }
 
@@ -268,32 +258,6 @@ class StudioViewModel @Inject constructor(
 
     private fun onModelLoaded() {
         _uiState.update { it.copy(isModelLoading = false) }
-    }
-
-    /**
-     * 카메라 프리뷰를 연결합니다.
-     *
-     * FaceTracker가 아직 초기화되지 않은 경우 대기열에 저장되어
-     * 초기화 완료 후 자동으로 연결됩니다.
-     *
-     * @param surfaceProvider 프리뷰를 표시할 SurfaceProvider
-     */
-    fun attachPreview(surfaceProvider: SurfaceProvider) {
-        val tracker = faceTracker
-        if (tracker != null) {
-            tracker.attachPreview(surfaceProvider)
-        } else {
-            // FaceTracker 초기화 전이면 대기열에 저장
-            pendingSurfaceProvider = surfaceProvider
-        }
-    }
-
-    /**
-     * 카메라 프리뷰 연결을 해제합니다.
-     */
-    fun detachPreview() {
-        pendingSurfaceProvider = null
-        faceTracker?.detachPreview()
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
