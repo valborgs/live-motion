@@ -95,7 +95,6 @@ fun StudioScreen(
                 onModelLoaded = { viewModel.onIntent(StudioUiIntent.OnModelLoaded) },
                 onModelLoadError = { error ->
                     onError(error)
-                    onBack()
                 }
             )
 
