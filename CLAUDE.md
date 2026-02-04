@@ -137,3 +137,63 @@ class StudioViewModel @Inject constructor(...) : ViewModel() {
     }
 }
 ```
+
+## Screen/Content 분리 패턴
+
+Screen composable은 두 계층으로 분리:
+
+- **`XxxScreen`** (public) — ViewModel 연결 전용. `hiltViewModel()`, `collectAsStateWithLifecycle()`, `LaunchedEffect`로 effect 수집, `LAppMinimumLive2DManager` 호출 등 플랫폼/DI 의존 로직을 담당
+- **`XxxScreenContent`** (private) — 순수 UI. 파라미터(state, 콜백)만으로 동작하여 `@Preview` 지원
+
+네이티브 라이브러리에 의존하는 컴포넌트(`Live2DScreen` 등)는 `@Composable () -> Unit` 슬롯 파라미터로 전달하여 Preview에서 placeholder로 대체:
+
+```kotlin
+// Screen (wrapper)
+@Composable
+fun StudioScreen(modelSource: ModelSource, ..., viewModel: StudioViewModel = hiltViewModel()) {
+    // state collect, effect 수집 ...
+    StudioScreenContent(
+        uiState = uiState,
+        onIntent = viewModel::onIntent,
+        modelViewContent = { Live2DScreen(...) },  // 실제 네이티브 뷰
+    )
+}
+
+// ScreenContent (순수 UI)
+@Composable
+private fun StudioScreenContent(
+    uiState: StudioViewModel.StudioUiState,
+    onIntent: (StudioUiIntent) -> Unit,
+    modelViewContent: @Composable () -> Unit = {},
+    // ...
+) { /* UI 구현 */ }
+
+// Preview
+@Preview
+@Composable
+private fun StudioScreenPreview() {
+    LiveMotionTheme {
+        StudioScreenContent(
+            uiState = StudioViewModel.StudioUiState(isModelLoading = false),
+            onIntent = {},
+            modelViewContent = { Box(Modifier.fillMaxSize().background(Color.DarkGray)) },
+        )
+    }
+}
+```
+
+Screen에서 사용하는 UI 컴포넌트(카드, 다이얼로그, 버튼 그룹 등)는 같은 feature 모듈의 `components/` 하위 패키지에 별도 파일로 분리:
+
+```
+feature/studio/src/main/java/org/comon/studio/
+├── StudioScreen.kt              # Screen + ScreenContent + Preview
+├── StudioViewModel.kt
+├── StudioUiIntent.kt
+├── StudioUiEffect.kt
+└── components/
+    ├── FileListDialog.kt        # 컴포넌트별 파일 분리
+    ├── StudioIconButton.kt
+    └── StudioToggleButton.kt
+```
+
+새 Screen 추가 시 이 패턴을 따르고, `@Preview` 함수를 함께 작성할 것.

@@ -1,5 +1,6 @@
 package org.comon.studio
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -16,16 +17,20 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import org.comon.ui.theme.LiveMotionTheme
-import androidx.compose.ui.window.Dialog
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import org.comon.domain.model.ModelSource
 import org.comon.live2d.LAppMinimumLive2DManager
 import org.comon.live2d.Live2DScreen
+import org.comon.studio.components.FileListDialog
+import org.comon.studio.components.StudioIconButton
+import org.comon.studio.components.StudioToggleButton
 import org.comon.ui.snackbar.ErrorDetailDialog
+import org.comon.ui.snackbar.SnackbarStateHolder
 import org.comon.ui.snackbar.rememberSnackbarStateHolder
+import org.comon.ui.theme.LiveMotionTheme
 
 @Composable
 fun StudioScreen(
@@ -78,6 +83,53 @@ fun StudioScreen(
         viewModel.mapFaceParams(facePose, landmarks.isNotEmpty())
     }
 
+    StudioScreenContent(
+        uiState = uiState,
+        landmarks = landmarks,
+        snackbarState = snackbarState,
+        onBack = onBack,
+        onIntent = viewModel::onIntent,
+        onExpressionFileSelected = { fileName ->
+            LAppMinimumLive2DManager.getInstance()
+                .startExpression("${uiState.expressionsFolder}/$fileName")
+        },
+        onMotionFileSelected = { fileName ->
+            LAppMinimumLive2DManager.getInstance()
+                .startMotion("${uiState.motionsFolder}/$fileName")
+        },
+        onExpressionReset = {
+            LAppMinimumLive2DManager.getInstance().clearExpression()
+        },
+        onMotionReset = {
+            LAppMinimumLive2DManager.getInstance().clearMotion()
+        },
+        modelViewContent = {
+            Live2DScreen(
+                modifier = Modifier.fillMaxSize(),
+                modelSource = modelSource,
+                faceParams = faceParams,
+                isZoomEnabled = uiState.isZoomEnabled,
+                isMoveEnabled = uiState.isMoveEnabled,
+                onModelLoaded = { viewModel.onIntent(StudioUiIntent.OnModelLoaded) },
+                onModelLoadError = onError,
+            )
+        },
+    )
+}
+
+@Composable
+private fun StudioScreenContent(
+    uiState: StudioViewModel.StudioUiState,
+    landmarks: List<NormalizedLandmark>,
+    snackbarState: SnackbarStateHolder,
+    onBack: () -> Unit,
+    onIntent: (StudioUiIntent) -> Unit,
+    onExpressionFileSelected: (String) -> Unit,
+    onMotionFileSelected: (String) -> Unit,
+    onExpressionReset: () -> Unit = {},
+    onMotionReset: () -> Unit = {},
+    modelViewContent: @Composable () -> Unit = {},
+) {
     Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
         // 상단 모델 뷰 영역 (8)
@@ -86,17 +138,7 @@ fun StudioScreen(
                 .fillMaxWidth()
                 .weight(0.8f)
         ) {
-            Live2DScreen(
-                modifier = Modifier.fillMaxSize(),
-                modelSource = modelSource,
-                faceParams = faceParams,
-                isZoomEnabled = uiState.isZoomEnabled,
-                isMoveEnabled = uiState.isMoveEnabled,
-                onModelLoaded = { viewModel.onIntent(StudioUiIntent.OnModelLoaded) },
-                onModelLoadError = { error ->
-                    onError(error)
-                }
-            )
+            modelViewContent()
 
             // 모델 로딩 오버레이
             if (uiState.isModelLoading) {
@@ -186,7 +228,7 @@ fun StudioScreen(
                             StudioIconButton(
                                 emoji = "😊",
                                 text = stringResource(R.string.studio_expression),
-                                onClick = { viewModel.onIntent(StudioUiIntent.ShowExpressionDialog) },
+                                onClick = { onIntent(StudioUiIntent.ShowExpressionDialog) },
                                 accentColor = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -195,7 +237,7 @@ fun StudioScreen(
                             StudioIconButton(
                                 emoji = "🎬",
                                 text = stringResource(R.string.studio_motion),
-                                onClick = { viewModel.onIntent(StudioUiIntent.ShowMotionDialog) },
+                                onClick = { onIntent(StudioUiIntent.ShowMotionDialog) },
                                 accentColor = MaterialTheme.colorScheme.secondary
                             )
                         }
@@ -212,28 +254,28 @@ fun StudioScreen(
                             text = if (uiState.isGpuEnabled) stringResource(R.string.studio_gpu) else stringResource(R.string.studio_cpu),
                             emoji = if (uiState.isGpuEnabled) "🚀" else "💻",
                             checked = uiState.isGpuEnabled,
-                            onCheckedChange = { viewModel.onIntent(StudioUiIntent.SetGpuEnabled(it)) },
+                            onCheckedChange = { onIntent(StudioUiIntent.SetGpuEnabled(it)) },
                             activeColor = MaterialTheme.colorScheme.primary
                         )
                         StudioToggleButton(
                             text = stringResource(R.string.studio_zoom),
                             emoji = "🔍",
                             checked = uiState.isZoomEnabled,
-                            onCheckedChange = { viewModel.onIntent(StudioUiIntent.ToggleZoom) },
+                            onCheckedChange = { onIntent(StudioUiIntent.ToggleZoom) },
                             activeColor = MaterialTheme.colorScheme.secondary
                         )
                         StudioToggleButton(
                             text = stringResource(R.string.studio_move),
                             emoji = "↕️",
                             checked = uiState.isMoveEnabled,
-                            onCheckedChange = { viewModel.onIntent(StudioUiIntent.ToggleMove) },
+                            onCheckedChange = { onIntent(StudioUiIntent.ToggleMove) },
                             activeColor = MaterialTheme.colorScheme.primary
                         )
                         StudioToggleButton(
                             text = stringResource(R.string.studio_preview),
                             emoji = "📷",
                             checked = uiState.isPreviewVisible,
-                            onCheckedChange = { viewModel.onIntent(StudioUiIntent.TogglePreview) },
+                            onCheckedChange = { onIntent(StudioUiIntent.TogglePreview) },
                             activeColor = MaterialTheme.colorScheme.tertiary
                         )
                     }
@@ -248,7 +290,7 @@ fun StudioScreen(
                             .clip(RoundedCornerShape(12.dp))
                             .background(Color.Black)
                     ) {
-                        androidx.compose.foundation.Canvas(
+                        Canvas(
                             modifier = Modifier.fillMaxSize()
                         ) {
                             val canvasWidth = size.width
@@ -285,15 +327,14 @@ fun StudioScreen(
             FileListDialog(
                 title = stringResource(R.string.dialog_expression_title),
                 files = listOf(resetLabel) + uiState.expressionFiles,
-                onDismiss = { viewModel.onIntent(StudioUiIntent.DismissDialog) },
+                onDismiss = { onIntent(StudioUiIntent.DismissDialog) },
                 onFileSelected = { fileName ->
                     if (fileName == resetLabel) {
-                        LAppMinimumLive2DManager.getInstance().clearExpression()
+                        onExpressionReset()
                     } else {
-                        LAppMinimumLive2DManager.getInstance()
-                            .startExpression("${uiState.expressionsFolder}/$fileName")
+                        onExpressionFileSelected(fileName)
                     }
-                    viewModel.onIntent(StudioUiIntent.DismissDialog)
+                    onIntent(StudioUiIntent.DismissDialog)
                 }
             )
         }
@@ -301,15 +342,14 @@ fun StudioScreen(
             FileListDialog(
                 title = stringResource(R.string.dialog_motion_title),
                 files = listOf(resetLabel) + uiState.motionFiles,
-                onDismiss = { viewModel.onIntent(StudioUiIntent.DismissDialog) },
+                onDismiss = { onIntent(StudioUiIntent.DismissDialog) },
                 onFileSelected = { fileName ->
                     if (fileName == resetLabel) {
-                        LAppMinimumLive2DManager.getInstance().clearMotion()
+                        onMotionReset()
                     } else {
-                        LAppMinimumLive2DManager.getInstance()
-                            .startMotion("${uiState.motionsFolder}/$fileName")
+                        onMotionFileSelected(fileName)
                     }
-                    viewModel.onIntent(StudioUiIntent.DismissDialog)
+                    onIntent(StudioUiIntent.DismissDialog)
                 }
             )
         }
@@ -329,183 +369,28 @@ fun StudioScreen(
     }
 }
 
+@Preview
 @Composable
-private fun StudioIconButton(
-    emoji: String,
-    text: String,
-    onClick: () -> Unit,
-    accentColor: Color = MaterialTheme.colorScheme.surfaceVariant
-) {
-    Button(
-        onClick = onClick,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = accentColor
-        ),
-        shape = RoundedCornerShape(12.dp),
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-        elevation = ButtonDefaults.buttonElevation(
-            defaultElevation = 4.dp,
-            pressedElevation = 2.dp
-        )
-    ) {
-        Text(
-            text = emoji,
-            style = MaterialTheme.typography.bodyMedium
-        )
-        Spacer(modifier = Modifier.width(6.dp))
-        Text(
-            text = text,
-            color = MaterialTheme.colorScheme.onSurface,
-            style = MaterialTheme.typography.labelMedium
-        )
-    }
-}
-
-@Composable
-private fun StudioToggleButton(
-    text: String,
-    emoji: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    activeColor: Color
-) {
-    val backgroundColor = if (checked) activeColor else MaterialTheme.colorScheme.surfaceVariant
-
-    Surface(
-        onClick = { onCheckedChange(!checked) },
-        shape = RoundedCornerShape(12.dp),
-        color = backgroundColor,
-        shadowElevation = if (checked) 6.dp else 2.dp,
-        modifier = Modifier.height(44.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text(
-                text = emoji,
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Text(
-                text = text,
-                color = if (checked) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelMedium
-            )
-        }
-    }
-}
-
-@Composable
-fun FileListDialog(
-    title: String,
-    files: List<String>,
-    onDismiss: () -> Unit,
-    onFileSelected: (String) -> Unit
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 400.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
-
-                androidx.compose.foundation.lazy.LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(files.size) { index ->
-                        val file = files[index]
-                        Button(
-                            onClick = { onFileSelected(file) },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text(file, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Button(
-                    onClick = onDismiss,
-                    modifier = Modifier.align(Alignment.End),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text(stringResource(R.string.button_close), color = MaterialTheme.colorScheme.onPrimary)
-                }
-            }
-        }
-    }
-}
-
-
-@Preview(name = "Light Mode", showBackground = true)
-@Preview(
-    name = "Dark Mode",
-    showBackground = true,
-    uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES
-)
-@Composable
-private fun StudioIconButtonPreview() {
+private fun StudioScreenPreview() {
     LiveMotionTheme {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(16.dp)
-        ) {
-            StudioIconButton(
-                emoji = "⬅️",
-                text = "뒤로",
-                onClick = {}
-            )
-            StudioIconButton(
-                emoji = "😊",
-                text = "감정",
-                onClick = {},
-                accentColor = MaterialTheme.colorScheme.primary
-            )
-        }
-    }
-}
-
-@Preview(name = "Light Mode", showBackground = true)
-@Preview(
-    name = "Dark Mode",
-    showBackground = true,
-    uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES
-)
-@Composable
-private fun StudioToggleButtonPreview() {
-    LiveMotionTheme {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(16.dp)
-        ) {
-            StudioToggleButton(
-                text = "GPU",
-                emoji = "🚀",
-                checked = true,
-                onCheckedChange = {},
-                activeColor = MaterialTheme.colorScheme.primary
-            )
-            StudioToggleButton(
-                text = "확대",
-                emoji = "🔍",
-                checked = false,
-                onCheckedChange = {},
-                activeColor = MaterialTheme.colorScheme.secondary
-            )
-        }
+        StudioScreenContent(
+            uiState = StudioViewModel.StudioUiState(isModelLoading = false),
+            landmarks = emptyList(),
+            snackbarState = rememberSnackbarStateHolder(),
+            onBack = {},
+            onIntent = {},
+            onExpressionFileSelected = {},
+            onMotionFileSelected = {},
+            modelViewContent = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.DarkGray),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("Live2D Preview", color = Color.White)
+                }
+            },
+        )
     }
 }

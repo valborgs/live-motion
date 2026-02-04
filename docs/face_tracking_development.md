@@ -34,6 +34,7 @@
 24. [Feature 모듈 분리](#24-feature-모듈-분리-2026-02-02-업데이트)
 25. [MapFacePoseUseCase 순수 함수화](#25-mapfaceposeusecase-순수-함수화-2026-02-02-업데이트)
 26. [스낵바 로직 리팩토링 및 SnackbarStateHolder](#26-스낵바-로직-리팩토링-및-snackbarstateholder-2026-02-02-업데이트)
+27. [Screen/Content 분리 및 Preview 지원](#27-screencontent-분리-및-preview-지원-2026-02-04-업데이트)
 
 ---
 
@@ -2519,3 +2520,151 @@ when (effect) {
 | `ModelSelectUiIntent.kt` | `ClearError` 제거 |
 | `StudioScreen.kt` | `rememberSnackbarStateHolder()` 사용 |
 | `ModelSelectScreen.kt` | `rememberSnackbarStateHolder()` 사용 |
+
+---
+
+## 27. Screen/Content 분리 및 Preview 지원 (2026-02-04 업데이트)
+
+### 배경
+- `StudioScreen`, `ModelSelectScreen`이 ViewModel에 직접 의존하여 Android Studio Preview에서 렌더링 불가
+- `Live2DScreen`은 네이티브 JNI 라이브러리(`Live2DCubismCore`)를 로드하므로 Preview 환경에서 `UnsatisfiedLinkError` 발생
+- ViewModel 로직과 순수 UI를 분리하여 테스트 용이성과 Preview 지원을 확보할 필요
+
+### 구현 내용
+
+#### 1. Screen(wrapper) / ScreenContent(순수 UI) 패턴
+
+각 Screen 함수를 두 계층으로 분리:
+
+```
+Screen (public)         → ViewModel 연결, Effect 수집, 상태 collect
+  └─ ScreenContent (private) → 순수 UI, 파라미터만으로 동작
+```
+
+#### 2. StudioScreen 분리
+
+**StudioScreen (wrapper)** — ViewModel 연결 담당:
+- `rememberSnackbarStateHolder()` 생성
+- `LaunchedEffect`로 초기화, `uiEffect` 수집
+- `facePose`, `landmarks`, `uiState` collect
+- `faceParams` 계산
+- `LAppMinimumLive2DManager` 호출을 콜백으로 전달
+- `Live2DScreen`을 `modelViewContent` 슬롯으로 전달
+
+**StudioScreenContent (순수 UI)** — 파라미터:
+```kotlin
+@Composable
+private fun StudioScreenContent(
+    uiState: StudioViewModel.StudioUiState,
+    landmarks: List<NormalizedLandmark>,
+    snackbarState: SnackbarStateHolder,
+    onBack: () -> Unit,
+    onIntent: (StudioUiIntent) -> Unit,
+    onExpressionFileSelected: (String) -> Unit,
+    onMotionFileSelected: (String) -> Unit,
+    onExpressionReset: () -> Unit = {},
+    onMotionReset: () -> Unit = {},
+    modelViewContent: @Composable () -> Unit = {},
+)
+```
+
+#### 3. ModelSelectScreen 분리
+
+**ModelSelectScreen (wrapper)** — ViewModel 연결 담당:
+- `rememberSnackbarStateHolder()` 생성
+- `LaunchedEffect`로 `uiEffect` 수집, `errorMessage` 처리
+- `SAFPermissionManager`, `folderPickerLauncher` 관리
+- `uiState` collect
+
+**ModelSelectScreenContent (순수 UI)** — 파라미터:
+```kotlin
+@Composable
+private fun ModelSelectScreenContent(
+    uiState: ModelSelectViewModel.UiState,
+    snackbarState: SnackbarStateHolder,
+    onModelSelected: (ModelSource) -> Unit,
+    onImportClick: () -> Unit,
+    onIntent: (ModelSelectUiIntent) -> Unit,
+)
+```
+
+#### 4. Live2D 네이티브 라이브러리 문제 해결
+
+`Live2DScreen`은 초기화 시 `LAppMinimumDelegate.getInstance()` → `CubismFramework.startUp()` → `Live2DCubismCoreJNI` 네이티브 라이브러리를 로드하므로 Preview 환경에서 사용 불가.
+
+**해결**: `modelViewContent: @Composable () -> Unit` 슬롯 파라미터로 분리:
+
+```kotlin
+// wrapper에서 실제 Live2DScreen 전달
+StudioScreenContent(
+    modelViewContent = {
+        Live2DScreen(
+            modifier = Modifier.fillMaxSize(),
+            modelSource = modelSource,
+            faceParams = faceParams,
+            ...
+        )
+    },
+)
+
+// Preview에서 placeholder 전달
+StudioScreenContent(
+    modelViewContent = {
+        Box(
+            modifier = Modifier.fillMaxSize().background(Color.DarkGray),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("Live2D Preview", color = Color.White)
+        }
+    },
+)
+```
+
+#### 5. Preview 함수 추가
+
+```kotlin
+@Preview
+@Composable
+private fun StudioScreenPreview() {
+    LiveMotionTheme {
+        StudioScreenContent(
+            uiState = StudioViewModel.StudioUiState(isModelLoading = false),
+            landmarks = emptyList(),
+            snackbarState = rememberSnackbarStateHolder(),
+            onBack = {}, onIntent = {},
+            onExpressionFileSelected = {}, onMotionFileSelected = {},
+            modelViewContent = { /* placeholder */ },
+        )
+    }
+}
+
+@Preview
+@Composable
+private fun ModelSelectScreenPreview() {
+    LiveMotionTheme {
+        ModelSelectScreenContent(
+            uiState = ModelSelectViewModel.UiState(
+                models = listOf(ModelSource.Asset("Haru"), ModelSource.Asset("Mark")),
+            ),
+            snackbarState = rememberSnackbarStateHolder(),
+            onModelSelected = {}, onImportClick = {}, onIntent = {},
+        )
+    }
+}
+```
+
+### 설계 결정
+
+| 항목 | 결정 | 이유 |
+|------|------|------|
+| Content 가시성 | `private` | Screen 외부에서 직접 사용할 필요 없음 |
+| Live2D 영역 | 슬롯(`@Composable () -> Unit`) | 네이티브 JNI 의존성을 Preview에서 격리 |
+| `BackHandler`, `showDeleteConfirmDialog` | Content 내부 유지 | 순수 UI 상호작용으로 ViewModel 불필요 |
+| `SAFPermissionManager`, `folderPickerLauncher` | wrapper에 유지 | `Context`, `ActivityResultLauncher` 등 플랫폼 의존성 |
+
+### 관련 파일
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `StudioScreen.kt` | `StudioScreen`/`StudioScreenContent` 분리, `modelViewContent` 슬롯 추가, `StudioScreenPreview` 추가 |
+| `ModelSelectScreen.kt` | `ModelSelectScreen`/`ModelSelectScreenContent` 분리, `onImportClick` 콜백 추가, `ModelSelectScreenPreview` 추가 |

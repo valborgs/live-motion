@@ -4,13 +4,10 @@ import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
@@ -23,16 +20,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
-import org.comon.ui.theme.LiveMotionTheme
 import org.comon.domain.model.ModelSource
 import org.comon.storage.SAFPermissionManager
+import org.comon.studio.components.DeleteConfirmDialog
+import org.comon.studio.components.DeletingProgressDialog
+import org.comon.studio.components.ImportProgressDialog
+import org.comon.studio.components.ModelCard
 import org.comon.ui.snackbar.ErrorDetailDialog
+import org.comon.ui.snackbar.SnackbarStateHolder
 import org.comon.ui.snackbar.rememberSnackbarStateHolder
+import org.comon.ui.theme.LiveMotionTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,9 +73,6 @@ fun ModelSelectScreen(
     // SAF 권한 관리자
     val safPermissionManager = remember { SAFPermissionManager(context) }
 
-    // 삭제 확인 다이얼로그 상태
-    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
-
     // 폴더 선택기 런처
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
@@ -101,9 +98,30 @@ fun ModelSelectScreen(
         }
     }
 
+    ModelSelectScreenContent(
+        uiState = uiState,
+        snackbarState = snackbarState,
+        onModelSelected = onModelSelected,
+        onImportClick = { folderPickerLauncher.launch(null) },
+        onIntent = viewModel::onIntent,
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModelSelectScreenContent(
+    uiState: ModelSelectViewModel.UiState,
+    snackbarState: SnackbarStateHolder,
+    onModelSelected: (ModelSource) -> Unit,
+    onImportClick: () -> Unit,
+    onIntent: (ModelSelectUiIntent) -> Unit,
+) {
+    // 삭제 확인 다이얼로그 상태
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+
     // 삭제 모드에서 뒤로가기 처리
     BackHandler(enabled = uiState.isDeleteMode) {
-        viewModel.onIntent(ModelSelectUiIntent.ExitDeleteMode)
+        onIntent(ModelSelectUiIntent.ExitDeleteMode)
     }
 
     Scaffold(
@@ -118,7 +136,7 @@ fun ModelSelectScreen(
                         )
                     },
                     navigationIcon = {
-                        IconButton(onClick = { viewModel.onIntent(ModelSelectUiIntent.ExitDeleteMode) }) {
+                        IconButton(onClick = { onIntent(ModelSelectUiIntent.ExitDeleteMode) }) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = stringResource(R.string.model_select_delete_mode_exit)
@@ -154,7 +172,7 @@ fun ModelSelectScreen(
             // 삭제 모드가 아닐 때만 FAB 표시
             if (!uiState.isDeleteMode) {
                 FloatingActionButton(
-                    onClick = { folderPickerLauncher.launch(null) },
+                    onClick = onImportClick,
                     containerColor = MaterialTheme.colorScheme.primary
                 ) {
                     Icon(
@@ -193,7 +211,7 @@ fun ModelSelectScreen(
                                 if (uiState.isDeleteMode) {
                                     // 삭제 모드에서 외부 모델만 선택 가능
                                     if (modelSource is ModelSource.External) {
-                                        viewModel.onIntent(ModelSelectUiIntent.ToggleModelSelection(modelSource.id))
+                                        onIntent(ModelSelectUiIntent.ToggleModelSelection(modelSource.id))
                                     }
                                 } else {
                                     onModelSelected(modelSource)
@@ -202,7 +220,7 @@ fun ModelSelectScreen(
                             onLongClick = {
                                 // 외부 모델만 길게 눌러서 삭제 모드 진입 가능
                                 if (modelSource is ModelSource.External && !uiState.isDeleteMode) {
-                                    viewModel.onIntent(ModelSelectUiIntent.EnterDeleteMode(modelSource.id))
+                                    onIntent(ModelSelectUiIntent.EnterDeleteMode(modelSource.id))
                                 }
                             }
                         )
@@ -235,7 +253,7 @@ fun ModelSelectScreen(
             count = uiState.selectedModelIds.size,
             onConfirm = {
                 showDeleteConfirmDialog = false
-                viewModel.onIntent(ModelSelectUiIntent.DeleteSelectedModels)
+                onIntent(ModelSelectUiIntent.DeleteSelectedModels)
             },
             onDismiss = { showDeleteConfirmDialog = false }
         )
@@ -247,217 +265,18 @@ fun ModelSelectScreen(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@Preview
 @Composable
-private fun ModelCard(
-    modelSource: ModelSource,
-    isDeleteMode: Boolean,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit
-) {
-    val isExternal = modelSource is ModelSource.External
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(1f)
-            .combinedClickable(
-                onClick = onClick,
-                onLongClick = onLongClick
+private fun ModelSelectScreenPreview() {
+    LiveMotionTheme {
+        ModelSelectScreenContent(
+            uiState = ModelSelectViewModel.UiState(
+                models = listOf(ModelSource.Asset("Haru"), ModelSource.Asset("Mark")),
             ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        colors = when {
-            isDeleteMode && !isExternal -> {
-                // 삭제 모드에서 Asset 모델은 비활성화 스타일
-                CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                )
-            }
-            else -> {
-                // 모든 모델 카드는 연한 민트 배경
-                CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
-            }
-        }
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize()
-        ) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text(
-                    text = modelSource.displayName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium,
-                    textAlign = TextAlign.Center,
-                    color = if (isDeleteMode && !isExternal) {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                    } else {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    }
-                )
-                if (isExternal) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = stringResource(R.string.model_select_external_label),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-
-            // 삭제 모드에서 외부 모델에만 체크박스 표시
-            if (isDeleteMode && isExternal) {
-                Checkbox(
-                    checked = isSelected,
-                    onCheckedChange = { onClick() },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp),
-                    colors = CheckboxDefaults.colors(
-                        checkedColor = Color(0xFFE53935)
-                    )
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ImportProgressDialog(progress: Float) {
-    Dialog(onDismissRequest = { /* 취소 불가 */ }) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = stringResource(R.string.dialog_import_progress_title),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = "${(progress * 100).toInt()}%",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-
-@Composable
-private fun DeleteConfirmDialog(
-    count: Int,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = stringResource(R.string.dialog_delete_title),
-                fontWeight = FontWeight.Bold
-            )
-        },
-        text = {
-            Text(stringResource(R.string.dialog_delete_message, count))
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.button_cancel))
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = onConfirm,
-                colors = ButtonDefaults.textButtonColors(
-                    contentColor = Color(0xFFE53935)
-                )
-            ) {
-                Text(stringResource(R.string.button_delete))
-            }
-        }
-    )
-}
-
-@Composable
-private fun DeletingProgressDialog() {
-    Dialog(onDismissRequest = { /* 취소 불가 */ }) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            shape = RoundedCornerShape(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.padding(24.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    strokeWidth = 2.dp
-                )
-                Text(
-                    text = stringResource(R.string.dialog_deleting),
-                    style = MaterialTheme.typography.bodyLarge
-                )
-            }
-        }
-    }
-}
-
-@Preview(name = "Light Mode", showBackground = true)
-@Preview(
-    name = "Dark Mode",
-    showBackground = true,
-    uiMode = android.content.res.Configuration.UI_MODE_NIGHT_YES
-)
-@Composable
-private fun ModelCardPreview() {
-    LiveMotionTheme {
-        ModelCard(
-            modelSource = ModelSource.Asset("Haru"),
-            isDeleteMode = false,
-            isSelected = false,
-            onClick = {},
-            onLongClick = {}
-        )
-    }
-}
-
-@Preview(name = "Delete Mode", showBackground = true)
-@Composable
-private fun ModelCardDeleteModePreview() {
-    LiveMotionTheme {
-        ModelCard(
-            modelSource = ModelSource.Asset("Haru"),
-            isDeleteMode = true,
-            isSelected = false,
-            onClick = {},
-            onLongClick = {}
+            snackbarState = rememberSnackbarStateHolder(),
+            onModelSelected = {},
+            onImportClick = {},
+            onIntent = {},
         )
     }
 }
