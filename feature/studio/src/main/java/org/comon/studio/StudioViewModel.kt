@@ -17,6 +17,7 @@ import org.comon.domain.model.FacePoseSmoothingState
 import org.comon.domain.model.ModelSource
 import org.comon.domain.usecase.GetModelMetadataUseCase
 import org.comon.domain.usecase.MapFacePoseUseCase
+import org.comon.live2d.LAppMinimumDelegate
 import org.comon.tracking.FaceTracker
 import org.comon.tracking.FaceTrackerFactory
 import org.comon.tracking.TrackingError
@@ -267,6 +268,10 @@ class StudioViewModel @Inject constructor(
         super.onCleared()
         faceTracker?.stop()
         faceTracker = null
+        // Live2D 리소스 정리 (view, textureManager, model, CubismFramework.dispose)
+        // ViewModel은 NavBackStackEntry에 바인딩되므로 predictive back 제스처 중에는
+        // cleared되지 않고, 실제 네비게이션 완료 시에만 호출됨
+        LAppMinimumDelegate.getInstance().onStop()
     }
 
 }

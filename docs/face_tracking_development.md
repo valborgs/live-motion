@@ -35,6 +35,7 @@
 25. [MapFacePoseUseCase 순수 함수화](#25-mapfaceposeusecase-순수-함수화-2026-02-02-업데이트)
 26. [스낵바 로직 리팩토링 및 SnackbarStateHolder](#26-스낵바-로직-리팩토링-및-snackbarstateholder-2026-02-02-업데이트)
 27. [Screen/Content 분리 및 Preview 지원](#27-screencontent-분리-및-preview-지원-2026-02-04-업데이트)
+28. [Predictive Back 제스처 취소 시 모델 소실 문제](#28-predictive-back-제스처-취소-시-모델-소실-문제-2026-02-05-업데이트)
 
 ---
 
@@ -2668,3 +2669,124 @@ private fun ModelSelectScreenPreview() {
 |------|----------|
 | `StudioScreen.kt` | `StudioScreen`/`StudioScreenContent` 분리, `modelViewContent` 슬롯 추가, `StudioScreenPreview` 추가 |
 | `ModelSelectScreen.kt` | `ModelSelectScreen`/`ModelSelectScreenContent` 분리, `onImportClick` 콜백 추가, `ModelSelectScreenPreview` 추가 |
+
+---
+
+## 28. Predictive Back 제스처 취소 시 모델 소실 문제 (2026-02-05 업데이트)
+
+### 문제
+
+스튜디오 화면에서 Android 13+ predictive back 제스처를 시작했다가 취소하면(드래그 후 놓지 않고 원위치로 돌아가면) 로드된 Live2D 모델이 사라지는 현상이 발생.
+
+### 원인 분석
+
+#### 1. EGL 컨텍스트 손실 (핵심 원인)
+
+`GLSurfaceView`는 기본적으로 pause 시 EGL 컨텍스트를 파괴함. Predictive back 제스처 흐름:
+
+```
+1. 제스처 시작 → NavBackStackEntry lifecycle: RESUMED → STARTED
+2. Live2DScreen의 LifecycleEventObserver가 ON_PAUSE 수신
+3. glView.onPause() 호출
+4. GLSurfaceView가 EGL 컨텍스트 파괴 (setPreserveEGLContextOnPause 미설정)
+5. 모든 GL 텍스처/버퍼 무효화
+6. 제스처 취소 → glView.onResume() → 새 EGL 컨텍스트 생성
+7. 모델의 GL 리소스는 이전 컨텍스트에서 생성된 것이라 무효
+8. 모델 렌더링 실패 → 화면에 모델 안 보임
+```
+
+#### 2. DisposableEffect.onDispose에서의 리소스 정리
+
+기존에는 `Live2DScreen.kt`의 `DisposableEffect.onDispose`에서 `LAppMinimumDelegate.getInstance().onStop()`을 호출하여 Live2D 리소스를 정리했음. Compose의 exit transition이 시작되면 onDispose가 트리거될 수 있어 제스처 취소 시에도 리소스가 파괴되는 문제가 있었음.
+
+### 해결 방법
+
+#### 1. EGL 컨텍스트 보존 설정
+
+`Live2DGLSurfaceView.kt`에 `preserveEGLContextOnPause = true` 추가:
+
+```kotlin
+init {
+    setEGLContextClientVersion(2)
+
+    // Predictive back 제스처 등으로 GLSurfaceView가 pause/resume될 때
+    // EGL 컨텍스트를 유지하여 GL 리소스(텍스처 등)가 무효화되지 않도록 함
+    preserveEGLContextOnPause = true
+
+    LAppMinimumDelegate.getInstance().onStart(context as android.app.Activity)
+    setRenderer(GLRendererMinimum())
+    renderMode = RENDERMODE_CONTINUOUSLY
+}
+```
+
+#### 2. 리소스 정리 시점 이동
+
+`Live2DScreen.kt`의 `DisposableEffect.onDispose`에서 `onStop()` 호출을 제거하고, `StudioViewModel.onCleared()`로 이동:
+
+**Live2DScreen.kt (변경 후):**
+```kotlin
+DisposableEffect(lifecycleOwner, glView) {
+    val observer = LifecycleEventObserver { _, event ->
+        when (event) {
+            Lifecycle.Event.ON_RESUME -> glView.onResume()
+            Lifecycle.Event.ON_PAUSE -> glView.onPause()
+            else -> Unit
+        }
+    }
+    lifecycleOwner.lifecycle.addObserver(observer)
+    onDispose {
+        lifecycleOwner.lifecycle.removeObserver(observer)
+        // Live2D 리소스 정리는 StudioViewModel.onCleared()에서 수행
+        // DisposableEffect.onDispose에서 정리하면 predictive back 제스처 취소 시
+        // 리소스가 파괴되어 모델이 사라지는 문제 발생
+    }
+}
+```
+
+**StudioViewModel.kt (변경 후):**
+```kotlin
+override fun onCleared() {
+    super.onCleared()
+    faceTracker?.stop()
+    faceTracker = null
+    // Live2D 리소스 정리 (view, textureManager, model, CubismFramework.dispose)
+    // ViewModel은 NavBackStackEntry에 바인딩되므로 predictive back 제스처 중에는
+    // cleared되지 않고, 실제 네비게이션 완료 시에만 호출됨
+    LAppMinimumDelegate.getInstance().onStop()
+}
+```
+
+### 기술적 배경
+
+#### NavBackStackEntry Lifecycle vs Compose Lifecycle
+
+Navigation Compose에서 `LocalLifecycleOwner`는 **NavBackStackEntry의 lifecycle**을 반환함:
+
+| 상황 | NavBackStackEntry Lifecycle | ViewModel |
+|------|---------------------------|-----------|
+| 제스처 시작 | RESUMED → STARTED | 유지 |
+| 제스처 취소 | STARTED → RESUMED | 유지 |
+| 제스처 완료 (뒤로가기) | DESTROYED | onCleared() 호출 |
+
+#### preserveEGLContextOnPause의 역할
+
+| 설정 | pause 시 동작 | resume 시 동작 |
+|-----|--------------|---------------|
+| `false` (기본값) | EGL 컨텍스트 파괴, GL 리소스 무효화 | 새 컨텍스트 생성, `onSurfaceCreated()` 호출 |
+| `true` | EGL 컨텍스트 유지, GL 리소스 보존 | 기존 컨텍스트 재사용 |
+
+### 설계 결정
+
+| 항목 | 결정 | 이유 |
+|------|------|------|
+| EGL 컨텍스트 보존 | `preserveEGLContextOnPause = true` | 제스처 중 GL 리소스 보존 필수 |
+| 리소스 정리 시점 | `ViewModel.onCleared()` | NavBackStackEntry와 동일한 생명주기, 제스처 중 호출 안 됨 |
+| Lifecycle Observer 유지 | `DisposableEffect`에서 `onPause`/`onResume` 계속 호출 | GLSurfaceView의 렌더링 일시정지/재개는 여전히 필요 |
+
+### 관련 파일
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `Live2DGLSurfaceView.kt` | `preserveEGLContextOnPause = true` 추가 |
+| `Live2DScreen.kt` | `onDispose`에서 `onStop()` 호출 제거 |
+| `StudioViewModel.kt` | `onCleared()`에 `LAppMinimumDelegate.onStop()` 추가, `LAppMinimumDelegate` import 추가 |

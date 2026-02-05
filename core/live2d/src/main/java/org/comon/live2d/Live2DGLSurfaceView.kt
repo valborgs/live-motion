@@ -38,6 +38,10 @@ class Live2DGLSurfaceView(context: Context): GLSurfaceView(context) {
         // OpenGL ES 2.0
         setEGLContextClientVersion(2)
 
+        // Predictive back 제스처 등으로 GLSurfaceView가 pause/resume될 때
+        // EGL 컨텍스트를 유지하여 GL 리소스(텍스처 등)가 무효화되지 않도록 함
+        preserveEGLContextOnPause = true
+
         // 뷰 생성 시 델리게이트 초기화 (재진입 시 리소스 갱신 위해)
         LAppMinimumDelegate.getInstance().onStart(context as android.app.Activity)
 

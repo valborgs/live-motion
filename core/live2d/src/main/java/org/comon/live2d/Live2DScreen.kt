@@ -97,9 +97,9 @@ fun Live2DScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            // 화면을 나갈 때 리소스 정리 (view, textureManager, model, CubismFramework.dispose)
-            // 싱글톤 인스턴스는 유지하여 다음 초기화 시 cleanUp+startUp이 다시 호출되지 않도록 함
-            LAppMinimumDelegate.getInstance().onStop()
+            // Live2D 리소스 정리는 StudioViewModel.onCleared()에서 수행
+            // DisposableEffect.onDispose에서 정리하면 predictive back 제스처 취소 시
+            // 리소스가 파괴되어 모델이 사라지는 문제 발생
         }
     }
 }
