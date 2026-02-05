@@ -13,6 +13,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.flow.Flow
 import org.comon.domain.model.ModelSource
 
 @Composable
@@ -22,6 +23,7 @@ fun Live2DScreen(
     faceParams: Map<String, Float>? = null,
     isZoomEnabled: Boolean = false,
     isMoveEnabled: Boolean = false,
+    effectFlow: Flow<Live2DUiEffect>? = null,
     onModelLoaded: (() -> Unit)? = null,
     onModelLoadError: ((String) -> Unit)? = null
 ) {
@@ -36,6 +38,22 @@ fun Live2DScreen(
     LaunchedEffect(isZoomEnabled, isMoveEnabled) {
         glView.isZoomEnabled = isZoomEnabled
         glView.isMoveEnabled = isMoveEnabled
+    }
+
+    // Live2D UI Effect 처리
+    LaunchedEffect(effectFlow) {
+        effectFlow?.collect { effect ->
+            glView.queueEvent {
+                val manager = LAppMinimumLive2DManager.getInstance()
+                when (effect) {
+                    is Live2DUiEffect.StartExpression -> manager.startExpression(effect.path)
+                    is Live2DUiEffect.ClearExpression -> manager.clearExpression()
+                    is Live2DUiEffect.StartMotion -> manager.startMotion(effect.path)
+                    is Live2DUiEffect.ClearMotion -> manager.clearMotion()
+                    is Live2DUiEffect.ResetTransform -> manager.resetModelTransform()
+                }
+            }
+        }
     }
 
     // 모델 소스 변경 시 GL Thread로 작업 큐잉

@@ -36,6 +36,7 @@
 26. [스낵바 로직 리팩토링 및 SnackbarStateHolder](#26-스낵바-로직-리팩토링-및-snackbarstateholder-2026-02-02-업데이트)
 27. [Screen/Content 분리 및 Preview 지원](#27-screencontent-분리-및-preview-지원-2026-02-04-업데이트)
 28. [Predictive Back 제스처 취소 시 모델 소실 문제](#28-predictive-back-제스처-취소-시-모델-소실-문제-2026-02-05-업데이트)
+29. [Live2DUiEffect를 통한 렌더링 이벤트 캡슐화](#29-live2duieffect를-통한-렌더링-이벤트-캡슐화-2026-02-05-업데이트)
 
 ---
 
@@ -2790,3 +2791,199 @@ Navigation Compose에서 `LocalLifecycleOwner`는 **NavBackStackEntry의 lifecyc
 | `Live2DGLSurfaceView.kt` | `preserveEGLContextOnPause = true` 추가 |
 | `Live2DScreen.kt` | `onDispose`에서 `onStop()` 호출 제거 |
 | `StudioViewModel.kt` | `onCleared()`에 `LAppMinimumDelegate.onStop()` 추가, `LAppMinimumDelegate` import 추가 |
+
+---
+
+## 29. Live2DUiEffect를 통한 렌더링 이벤트 캡슐화 (2026-02-05 업데이트)
+
+### 문제
+
+기존에는 `StudioScreen`에서 `LAppMinimumLive2DManager` 싱글톤을 직접 호출하여 Live2D 조작을 수행했음:
+
+```kotlin
+// StudioScreen.kt (기존)
+onExpressionFileSelected = { fileName ->
+    LAppMinimumLive2DManager.getInstance()
+        .startExpression("${uiState.expressionsFolder}/$fileName")
+},
+onMotionFileSelected = { fileName ->
+    LAppMinimumLive2DManager.getInstance()
+        .startMotion("${uiState.motionsFolder}/$fileName")
+},
+onExpressionReset = {
+    LAppMinimumLive2DManager.getInstance().clearExpression()
+},
+onMotionReset = {
+    LAppMinimumLive2DManager.getInstance().clearMotion()
+},
+```
+
+**문제점:**
+1. **feature 모듈에서 싱글톤 직접 접근** - 결합도가 높고 테스트 어려움
+2. **GL 스레드 안전성 미보장** - `queueEvent` 없이 호출하여 잠재적 동시성 문제
+3. **관심사 분리 위반** - UI 레이어에서 렌더링 구현 세부사항을 알고 있음
+
+### 해결 방법
+
+#### 1. Live2DUiEffect 정의 (core:live2d)
+
+Live2D 렌더링 관련 일회성 이벤트를 sealed interface로 정의:
+
+```kotlin
+// core/live2d/Live2DUiEffect.kt
+sealed interface Live2DUiEffect {
+    data class StartExpression(val path: String) : Live2DUiEffect
+    data object ClearExpression : Live2DUiEffect
+    data class StartMotion(val path: String) : Live2DUiEffect
+    data object ClearMotion : Live2DUiEffect
+    data object ResetTransform : Live2DUiEffect
+}
+```
+
+#### 2. Live2DScreen에서 Effect 처리
+
+`effectFlow` 파라미터를 추가하고, GL 스레드에서 안전하게 처리:
+
+```kotlin
+// core/live2d/Live2DScreen.kt
+@Composable
+fun Live2DScreen(
+    // ...
+    effectFlow: Flow<Live2DUiEffect>? = null,
+    // ...
+) {
+    val glView = remember { Live2DGLSurfaceView(context) }
+
+    LaunchedEffect(effectFlow) {
+        effectFlow?.collect { effect ->
+            glView.queueEvent {
+                val manager = LAppMinimumLive2DManager.getInstance()
+                when (effect) {
+                    is Live2DUiEffect.StartExpression -> manager.startExpression(effect.path)
+                    is Live2DUiEffect.ClearExpression -> manager.clearExpression()
+                    is Live2DUiEffect.StartMotion -> manager.startMotion(effect.path)
+                    is Live2DUiEffect.ClearMotion -> manager.clearMotion()
+                    is Live2DUiEffect.ResetTransform -> manager.resetModelTransform()
+                }
+            }
+        }
+    }
+}
+```
+
+#### 3. ViewModel에서 Channel로 Effect 전송
+
+```kotlin
+// StudioViewModel.kt
+private val _live2dEffect = Channel<Live2DUiEffect>()
+val live2dEffect = _live2dEffect.receiveAsFlow()
+
+private fun startExpression(path: String) {
+    _live2dEffect.trySend(Live2DUiEffect.StartExpression(path))
+}
+
+private fun clearExpression() {
+    _live2dEffect.trySend(Live2DUiEffect.ClearExpression)
+}
+
+private fun startMotion(path: String) {
+    _live2dEffect.trySend(Live2DUiEffect.StartMotion(path))
+}
+
+private fun clearMotion() {
+    _live2dEffect.trySend(Live2DUiEffect.ClearMotion)
+}
+
+private fun resetTransform() {
+    _live2dEffect.trySend(Live2DUiEffect.ResetTransform)
+}
+```
+
+#### 4. StudioUiIntent 확장
+
+```kotlin
+// StudioUiIntent.kt
+sealed interface StudioUiIntent {
+    // ... 기존 Intent ...
+    data class StartExpression(val path: String) : StudioUiIntent
+    data object ClearExpression : StudioUiIntent
+    data class StartMotion(val path: String) : StudioUiIntent
+    data object ClearMotion : StudioUiIntent
+    data object ResetTransform : StudioUiIntent
+}
+```
+
+#### 5. StudioScreen에서 Intent 사용
+
+```kotlin
+// StudioScreen.kt (변경 후)
+StudioScreenContent(
+    // ...
+    onIntent = viewModel::onIntent,
+    modelViewContent = {
+        Live2DScreen(
+            // ...
+            effectFlow = viewModel.live2dEffect,
+        )
+    },
+)
+
+// Dialog에서 Intent 사용
+onFileSelected = { fileName ->
+    if (fileName == resetLabel) {
+        onIntent(StudioUiIntent.ClearExpression)
+    } else {
+        onIntent(StudioUiIntent.StartExpression("${uiState.expressionsFolder}/$fileName"))
+    }
+    onIntent(StudioUiIntent.DismissDialog)
+}
+```
+
+### 아키텍처 결정
+
+#### 일회성 이벤트 처리 방식 비교
+
+| 방식 | 장점 | 단점 |
+|------|------|------|
+| State 트리거 (Int 카운터) | 간단한 구현 | 의미 불명확, LaunchedEffect 오용 |
+| Boolean 토글 | 간단 | 의미 불명확 |
+| **Channel/Flow** | 일회성 이벤트에 적합, 명확한 의미 | 약간의 보일러플레이트 |
+
+#### Live2D 조작의 레이어 배치
+
+| 레이어 | 적합성 | 이유 |
+|--------|--------|------|
+| UseCase (Domain) | ❌ | Domain은 순수 Kotlin, Android/OpenGL 의존성 불가 |
+| ViewModel | △ | ViewModel은 뷰 조작을 직접 하면 안 됨 |
+| Screen | △ | 싱글톤 직접 접근은 결합도 높음 |
+| **Live2DScreen** | ✅ | 렌더링 로직 캡슐화, GL 스레드 안전성 보장 |
+
+Live2D 조작(startExpression, startMotion 등)은 **렌더링/뷰 레벨 작업**이므로:
+- ViewModel: "언제" 트리거할지 결정 → Effect 전송
+- Live2DScreen: "어떻게" 처리할지 → `queueEvent`로 GL 스레드에서 실행
+
+### 데이터 흐름
+
+```
+사용자 액션 (버튼 클릭)
+    ↓
+StudioUiIntent (StartExpression, ClearMotion, ResetTransform 등)
+    ↓
+StudioViewModel.onIntent() → _live2dEffect.trySend()
+    ↓
+Live2DScreen.effectFlow.collect()
+    ↓
+glView.queueEvent { manager.xxx() }  // GL 스레드에서 실행
+```
+
+### 관련 파일
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `core/live2d/Live2DUiEffect.kt` | 새 파일 - Live2D 일회성 이벤트 정의 |
+| `core/live2d/Live2DScreen.kt` | `effectFlow` 파라미터 추가, Effect 처리 로직 |
+| `core/live2d/Live2DGLSurfaceView.kt` | 미사용 `resetTransform()` 함수 삭제 |
+| `feature/studio/StudioViewModel.kt` | `_live2dEffect` Channel 추가, Live2D 액션 함수들 |
+| `feature/studio/StudioUiIntent.kt` | Expression/Motion/Reset Intent 추가 |
+| `feature/studio/StudioScreen.kt` | 싱글톤 직접 접근 제거, Intent 기반으로 변경 |
+| `feature/studio/res/values/strings.xml` | `studio_reset` 문자열 추가 |

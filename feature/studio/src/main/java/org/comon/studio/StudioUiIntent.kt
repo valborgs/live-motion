@@ -29,4 +29,19 @@ sealed interface StudioUiIntent {
 
     /** 모델 로딩 완료 */
     data object OnModelLoaded : StudioUiIntent
+
+    /** 표정 시작 */
+    data class StartExpression(val path: String) : StudioUiIntent
+
+    /** 표정 초기화 */
+    data object ClearExpression : StudioUiIntent
+
+    /** 모션 시작 */
+    data class StartMotion(val path: String) : StudioUiIntent
+
+    /** 모션 초기화 */
+    data object ClearMotion : StudioUiIntent
+
+    /** 모델 Transform(위치/스케일) 리셋 */
+    data object ResetTransform : StudioUiIntent
 }

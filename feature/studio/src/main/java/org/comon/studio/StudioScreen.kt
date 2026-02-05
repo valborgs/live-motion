@@ -22,7 +22,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import org.comon.domain.model.ModelSource
-import org.comon.live2d.LAppMinimumLive2DManager
 import org.comon.live2d.Live2DScreen
 import org.comon.studio.components.FileListDialog
 import org.comon.studio.components.StudioIconButton
@@ -89,20 +88,6 @@ fun StudioScreen(
         snackbarState = snackbarState,
         onBack = onBack,
         onIntent = viewModel::onIntent,
-        onExpressionFileSelected = { fileName ->
-            LAppMinimumLive2DManager.getInstance()
-                .startExpression("${uiState.expressionsFolder}/$fileName")
-        },
-        onMotionFileSelected = { fileName ->
-            LAppMinimumLive2DManager.getInstance()
-                .startMotion("${uiState.motionsFolder}/$fileName")
-        },
-        onExpressionReset = {
-            LAppMinimumLive2DManager.getInstance().clearExpression()
-        },
-        onMotionReset = {
-            LAppMinimumLive2DManager.getInstance().clearMotion()
-        },
         modelViewContent = {
             Live2DScreen(
                 modifier = Modifier.fillMaxSize(),
@@ -110,6 +95,7 @@ fun StudioScreen(
                 faceParams = faceParams,
                 isZoomEnabled = uiState.isZoomEnabled,
                 isMoveEnabled = uiState.isMoveEnabled,
+                effectFlow = viewModel.live2dEffect,
                 onModelLoaded = { viewModel.onIntent(StudioUiIntent.OnModelLoaded) },
                 onModelLoadError = onError,
             )
@@ -124,10 +110,6 @@ private fun StudioScreenContent(
     snackbarState: SnackbarStateHolder,
     onBack: () -> Unit,
     onIntent: (StudioUiIntent) -> Unit,
-    onExpressionFileSelected: (String) -> Unit,
-    onMotionFileSelected: (String) -> Unit,
-    onExpressionReset: () -> Unit = {},
-    onMotionReset: () -> Unit = {},
     modelViewContent: @Composable () -> Unit = {},
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
@@ -271,6 +253,11 @@ private fun StudioScreenContent(
                             onCheckedChange = { onIntent(StudioUiIntent.ToggleMove) },
                             activeColor = MaterialTheme.colorScheme.primary
                         )
+                        StudioIconButton(
+                            emoji = "🔄",
+                            text = stringResource(R.string.studio_reset),
+                            onClick = { onIntent(StudioUiIntent.ResetTransform) }
+                        )
                         StudioToggleButton(
                             text = stringResource(R.string.studio_preview),
                             emoji = "📷",
@@ -330,9 +317,9 @@ private fun StudioScreenContent(
                 onDismiss = { onIntent(StudioUiIntent.DismissDialog) },
                 onFileSelected = { fileName ->
                     if (fileName == resetLabel) {
-                        onExpressionReset()
+                        onIntent(StudioUiIntent.ClearExpression)
                     } else {
-                        onExpressionFileSelected(fileName)
+                        onIntent(StudioUiIntent.StartExpression("${uiState.expressionsFolder}/$fileName"))
                     }
                     onIntent(StudioUiIntent.DismissDialog)
                 }
@@ -345,9 +332,9 @@ private fun StudioScreenContent(
                 onDismiss = { onIntent(StudioUiIntent.DismissDialog) },
                 onFileSelected = { fileName ->
                     if (fileName == resetLabel) {
-                        onMotionReset()
+                        onIntent(StudioUiIntent.ClearMotion)
                     } else {
-                        onMotionFileSelected(fileName)
+                        onIntent(StudioUiIntent.StartMotion("${uiState.motionsFolder}/$fileName"))
                     }
                     onIntent(StudioUiIntent.DismissDialog)
                 }
@@ -379,8 +366,6 @@ private fun StudioScreenPreview() {
             snackbarState = rememberSnackbarStateHolder(),
             onBack = {},
             onIntent = {},
-            onExpressionFileSelected = {},
-            onMotionFileSelected = {},
             modelViewContent = {
                 Box(
                     modifier = Modifier

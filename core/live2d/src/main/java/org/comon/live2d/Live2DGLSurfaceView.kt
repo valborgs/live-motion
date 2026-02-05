@@ -4,9 +4,6 @@ import android.content.Context
 import android.opengl.GLSurfaceView
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
-import org.comon.live2d.GLRendererMinimum
-import org.comon.live2d.LAppMinimumDelegate
-import org.comon.live2d.LAppMinimumLive2DManager
 
 class Live2DGLSurfaceView(context: Context): GLSurfaceView(context) {
 
@@ -112,12 +109,4 @@ class Live2DGLSurfaceView(context: Context): GLSurfaceView(context) {
         return true
     }
 
-    /**
-     * 스케일 및 위치 리셋
-     */
-    fun resetTransform() {
-        queueEvent {
-            LAppMinimumLive2DManager.getInstance().resetModelTransform()
-        }
-    }
 }

@@ -18,6 +18,7 @@ import org.comon.domain.model.ModelSource
 import org.comon.domain.usecase.GetModelMetadataUseCase
 import org.comon.domain.usecase.MapFacePoseUseCase
 import org.comon.live2d.LAppMinimumDelegate
+import org.comon.live2d.Live2DUiEffect
 import org.comon.tracking.FaceTracker
 import org.comon.tracking.FaceTrackerFactory
 import org.comon.tracking.TrackingError
@@ -81,6 +82,12 @@ class StudioViewModel @Inject constructor(
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private val _uiEffect = Channel<StudioUiEffect>()
     val uiEffect = _uiEffect.receiveAsFlow()
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // Live2D Effect (렌더링 관련 일회성 이벤트)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    private val _live2dEffect = Channel<Live2DUiEffect>()
+    val live2dEffect = _live2dEffect.receiveAsFlow()
 
     data class StudioUiState(
         // 모델 로딩 상태
@@ -223,6 +230,11 @@ class StudioViewModel @Inject constructor(
             is StudioUiIntent.ShowMotionDialog -> showMotionDialog()
             is StudioUiIntent.DismissDialog -> dismissDialog()
             is StudioUiIntent.OnModelLoaded -> onModelLoaded()
+            is StudioUiIntent.StartExpression -> startExpression(intent.path)
+            is StudioUiIntent.ClearExpression -> clearExpression()
+            is StudioUiIntent.StartMotion -> startMotion(intent.path)
+            is StudioUiIntent.ClearMotion -> clearMotion()
+            is StudioUiIntent.ResetTransform -> resetTransform()
         }
     }
 
@@ -259,6 +271,29 @@ class StudioViewModel @Inject constructor(
 
     private fun onModelLoaded() {
         _uiState.update { it.copy(isModelLoading = false) }
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // Live2D Actions
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    private fun startExpression(path: String) {
+        _live2dEffect.trySend(Live2DUiEffect.StartExpression(path))
+    }
+
+    private fun clearExpression() {
+        _live2dEffect.trySend(Live2DUiEffect.ClearExpression)
+    }
+
+    private fun startMotion(path: String) {
+        _live2dEffect.trySend(Live2DUiEffect.StartMotion(path))
+    }
+
+    private fun clearMotion() {
+        _live2dEffect.trySend(Live2DUiEffect.ClearMotion)
+    }
+
+    private fun resetTransform() {
+        _live2dEffect.trySend(Live2DUiEffect.ResetTransform)
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
