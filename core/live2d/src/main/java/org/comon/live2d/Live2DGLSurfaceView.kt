@@ -114,16 +114,27 @@ class Live2DGLSurfaceView(context: Context): GLSurfaceView(context) {
                 }
             }
 
-            MotionEvent.ACTION_UP,
-            MotionEvent.ACTION_CANCEL -> {
+            MotionEvent.ACTION_UP -> {
                 if (!isMoveEnabled) {
                     queueEvent {
                         LAppMinimumDelegate.getInstance().onTouchEnd(x, y)
                     }
                 }
+                if (!isDragging) {
+                    performClick()
+                }
+                isDragging = false
+            }
+
+            MotionEvent.ACTION_CANCEL -> {
                 isDragging = false
             }
         }
+        return true
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
         return true
     }
 
