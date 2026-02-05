@@ -37,6 +37,7 @@
 27. [Screen/Content 분리 및 Preview 지원](#27-screencontent-분리-및-preview-지원-2026-02-04-업데이트)
 28. [Predictive Back 제스처 취소 시 모델 소실 문제](#28-predictive-back-제스처-취소-시-모델-소실-문제-2026-02-05-업데이트)
 29. [Live2DUiEffect를 통한 렌더링 이벤트 캡슐화](#29-live2duieffect를-통한-렌더링-이벤트-캡슐화-2026-02-05-업데이트)
+30. [핀치 줌에서 싱글 터치 전환 시 위치 튀는 현상 수정](#30-핀치-줌에서-싱글-터치-전환-시-위치-튀는-현상-수정-2026-02-05-업데이트)
 
 ---
 
@@ -2987,3 +2988,108 @@ glView.queueEvent { manager.xxx() }  // GL 스레드에서 실행
 | `feature/studio/StudioUiIntent.kt` | Expression/Motion/Reset Intent 추가 |
 | `feature/studio/StudioScreen.kt` | 싱글톤 직접 접근 제거, Intent 기반으로 변경 |
 | `feature/studio/res/values/strings.xml` | `studio_reset` 문자열 추가 |
+
+---
+
+## 30. 핀치 줌에서 싱글 터치 전환 시 위치 튀는 현상 수정 (2026-02-05 업데이트)
+
+### 문제
+
+스튜디오 화면에서 확대/축소(핀치 줌)와 이동 기능을 동시에 사용할 때, 두 손가락 중 하나를 먼저 떼면 캐릭터의 위치가 급격하게 튀는 현상이 발생.
+
+### 원인 분석
+
+기존 터치 이벤트 처리 흐름:
+
+```
+1. 두 손가락 핀치 줌 중 (pointerCount = 2)
+   - scaleGestureDetector만 처리, 바로 return
+
+2. 한 손가락을 뗌 (ACTION_POINTER_UP)
+   - 처리되지 않음 ← 문제!
+
+3. 남은 한 손가락으로 ACTION_MOVE
+   - lastTouchX/Y는 핀치 시작 전 위치 그대로
+   - 남은 손가락 위치와 큰 차이 발생
+   - deltaX/Y가 크게 계산됨 → 위치 튀는 현상
+```
+
+**핵심 문제점:**
+1. `ACTION_POINTER_UP` 이벤트가 처리되지 않음
+2. 핀치 → 싱글 터치 전환 시 `lastTouchX/Y`가 갱신되지 않음
+
+### 해결 방법
+
+#### 1. ACTION_POINTER_UP 처리 추가
+
+핀치 줌에서 한 손가락을 뗄 때, 남은 손가락의 위치로 `lastTouchX/Y`를 갱신:
+
+```kotlin
+MotionEvent.ACTION_POINTER_UP -> {
+    // 핀치에서 한 손가락 뗄 때, 남은 손가락 위치로 갱신하여 튀는 현상 방지
+    if (event.pointerCount > 1) {
+        val remainingPointerIndex = if (event.actionIndex == 0) 1 else 0
+        lastTouchX = event.getX(remainingPointerIndex)
+        lastTouchY = event.getY(remainingPointerIndex)
+    }
+}
+```
+
+#### 2. 핀치 진행 중 드래그 처리 차단
+
+`ScaleGestureDetector.isInProgress`를 체크하여 핀치 줌이 진행되는 동안 드래그 처리를 완전히 차단:
+
+```kotlin
+// 핀치 줌 감지기에 항상 이벤트 전달 (줌 활성화 시)
+if (isZoomEnabled) {
+    scaleGestureDetector.onTouchEvent(event)
+}
+
+// 핀치 줌 진행 중에는 드래그 처리 차단
+if (scaleGestureDetector.isInProgress) {
+    return true
+}
+```
+
+#### 3. 두 손가락 이상일 때 이동 처리 건너뜀
+
+`ACTION_MOVE`에서 `pointerCount >= 2`일 때는 이동 처리를 하지 않음:
+
+```kotlin
+MotionEvent.ACTION_MOVE -> {
+    // 두 손가락 이상일 때는 이동 처리 안함 (핀치 줌 전용)
+    if (event.pointerCount >= 2) {
+        return true
+    }
+    // ... 이동 처리 로직
+}
+```
+
+### 수정 후 터치 이벤트 흐름
+
+```
+1. 두 손가락 핀치 줌 중 (pointerCount = 2)
+   - scaleGestureDetector.onTouchEvent() 호출
+   - isInProgress = true → 바로 return
+
+2. 한 손가락을 뗌 (ACTION_POINTER_UP)
+   - 남은 손가락 인덱스 계산 (actionIndex가 0이면 1, 아니면 0)
+   - lastTouchX/Y를 남은 손가락 위치로 갱신
+
+3. 남은 한 손가락으로 ACTION_MOVE
+   - lastTouchX/Y가 이미 현재 손가락 근처 위치
+   - deltaX/Y가 작게 계산됨 → 부드러운 전환
+```
+
+### 아키텍처 결정
+
+| 문제 | 해결 방식 | 대안 |
+|------|----------|------|
+| 포인터 전환 시 위치 갱신 | `ACTION_POINTER_UP`에서 남은 포인터 위치 저장 | 타이머로 무시 (비권장) |
+| 핀치 중 드래그 차단 | `isInProgress` 체크 | pointerCount만 체크 (불완전) |
+
+### 관련 파일
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `core/live2d/Live2DGLSurfaceView.kt` | `ACTION_POINTER_UP` 처리 추가, `isInProgress` 체크, pointerCount 조건 추가 |

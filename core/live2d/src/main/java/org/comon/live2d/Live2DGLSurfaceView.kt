@@ -50,9 +50,13 @@ class Live2DGLSurfaceView(context: Context): GLSurfaceView(context) {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        // 핀치 줌 처리
-        if (isZoomEnabled && event.pointerCount >= 2) {
+        // 핀치 줌 감지기에 항상 이벤트 전달 (줌 활성화 시)
+        if (isZoomEnabled) {
             scaleGestureDetector.onTouchEvent(event)
+        }
+
+        // 핀치 줌 진행 중에는 드래그 처리 차단
+        if (scaleGestureDetector.isInProgress) {
             return true
         }
 
@@ -64,7 +68,7 @@ class Live2DGLSurfaceView(context: Context): GLSurfaceView(context) {
                 lastTouchX = x
                 lastTouchY = y
                 isDragging = false
-                
+
                 if (!isMoveEnabled) {
                     queueEvent {
                         LAppMinimumDelegate.getInstance().onTouchBegan(x, y)
@@ -72,12 +76,26 @@ class Live2DGLSurfaceView(context: Context): GLSurfaceView(context) {
                 }
             }
 
+            MotionEvent.ACTION_POINTER_UP -> {
+                // 핀치에서 한 손가락 뗄 때, 남은 손가락 위치로 갱신하여 튀는 현상 방지
+                if (event.pointerCount > 1) {
+                    val remainingPointerIndex = if (event.actionIndex == 0) 1 else 0
+                    lastTouchX = event.getX(remainingPointerIndex)
+                    lastTouchY = event.getY(remainingPointerIndex)
+                }
+            }
+
             MotionEvent.ACTION_MOVE -> {
+                // 두 손가락 이상일 때는 이동 처리 안함 (핀치 줌 전용)
+                if (event.pointerCount >= 2) {
+                    return true
+                }
+
                 if (isMoveEnabled) {
                     // 이동 모드: 캐릭터 위치 이동
                     val deltaX = (x - lastTouchX) / width * 2f
                     val deltaY = -(y - lastTouchY) / height * 2f  // Y축 반전
-                    
+
                     queueEvent {
                         val manager = LAppMinimumLive2DManager.getInstance()
                         manager.setModelOffset(
@@ -85,7 +103,7 @@ class Live2DGLSurfaceView(context: Context): GLSurfaceView(context) {
                             manager.modelOffsetY + deltaY
                         )
                     }
-                    
+
                     lastTouchX = x
                     lastTouchY = y
                     isDragging = true
