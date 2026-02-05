@@ -28,8 +28,7 @@
     <string name="studio_motion">모션</string>
     <string name="studio_gpu">GPU</string>
     <string name="studio_cpu">CPU</string>
-    <string name="studio_zoom">확대</string>
-    <string name="studio_move">이동</string>
+    <string name="studio_gesture">확대/이동</string>
     <string name="studio_reset">리셋</string>
     <string name="studio_preview">프리뷰</string>
     <string name="studio_snackbar_tracking_error">트래킹 오류가 발생했습니다</string>

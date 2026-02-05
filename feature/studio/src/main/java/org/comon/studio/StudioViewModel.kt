@@ -98,8 +98,7 @@ class StudioViewModel @Inject constructor(
         val isGpuEnabled: Boolean = false,
 
         // UI 토글
-        val isZoomEnabled: Boolean = false,
-        val isMoveEnabled: Boolean = false,
+        val isGestureEnabled: Boolean = false,
         val isPreviewVisible: Boolean = true,
 
         // 다이얼로그
@@ -222,8 +221,7 @@ class StudioViewModel @Inject constructor(
      */
     fun onIntent(intent: StudioUiIntent) {
         when (intent) {
-            is StudioUiIntent.ToggleZoom -> toggleZoom()
-            is StudioUiIntent.ToggleMove -> toggleMove()
+            is StudioUiIntent.ToggleGesture -> toggleGesture()
             is StudioUiIntent.TogglePreview -> togglePreview()
             is StudioUiIntent.SetGpuEnabled -> setGpuEnabled(intent.enabled)
             is StudioUiIntent.ShowExpressionDialog -> showExpressionDialog()
@@ -241,12 +239,8 @@ class StudioViewModel @Inject constructor(
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // UI Actions
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    private fun toggleZoom() {
-        _uiState.update { it.copy(isZoomEnabled = !it.isZoomEnabled) }
-    }
-
-    private fun toggleMove() {
-        _uiState.update { it.copy(isMoveEnabled = !it.isMoveEnabled) }
+    private fun toggleGesture() {
+        _uiState.update { it.copy(isGestureEnabled = !it.isGestureEnabled) }
     }
 
     private fun togglePreview() {

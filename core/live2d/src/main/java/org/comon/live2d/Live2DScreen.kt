@@ -21,8 +21,7 @@ fun Live2DScreen(
     modifier: Modifier = Modifier,
     modelSource: ModelSource? = null,
     faceParams: Map<String, Float>? = null,
-    isZoomEnabled: Boolean = false,
-    isMoveEnabled: Boolean = false,
+    isGestureEnabled: Boolean = false,
     effectFlow: Flow<Live2DUiEffect>? = null,
     onModelLoaded: (() -> Unit)? = null,
     onModelLoadError: ((String) -> Unit)? = null
@@ -34,10 +33,10 @@ fun Live2DScreen(
         Live2DGLSurfaceView(context)
     }
 
-    // 제스처 모드 업데이트
-    LaunchedEffect(isZoomEnabled, isMoveEnabled) {
-        glView.isZoomEnabled = isZoomEnabled
-        glView.isMoveEnabled = isMoveEnabled
+    // 제스처 모드 업데이트 (드래그 이동 + 핀치 확대/축소)
+    LaunchedEffect(isGestureEnabled) {
+        glView.isZoomEnabled = isGestureEnabled
+        glView.isMoveEnabled = isGestureEnabled
     }
 
     // Live2D UI Effect 처리

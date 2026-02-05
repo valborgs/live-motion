@@ -93,8 +93,7 @@ fun StudioScreen(
                 modifier = Modifier.fillMaxSize(),
                 modelSource = modelSource,
                 faceParams = faceParams,
-                isZoomEnabled = uiState.isZoomEnabled,
-                isMoveEnabled = uiState.isMoveEnabled,
+                isGestureEnabled = uiState.isGestureEnabled,
                 effectFlow = viewModel.live2dEffect,
                 onModelLoaded = { viewModel.onIntent(StudioUiIntent.OnModelLoaded) },
                 onModelLoadError = onError,
@@ -240,18 +239,11 @@ private fun StudioScreenContent(
                             activeColor = MaterialTheme.colorScheme.primary
                         )
                         StudioToggleButton(
-                            text = stringResource(R.string.studio_zoom),
-                            emoji = "🔍",
-                            checked = uiState.isZoomEnabled,
-                            onCheckedChange = { onIntent(StudioUiIntent.ToggleZoom) },
+                            text = stringResource(R.string.studio_gesture),
+                            emoji = "✋",
+                            checked = uiState.isGestureEnabled,
+                            onCheckedChange = { onIntent(StudioUiIntent.ToggleGesture) },
                             activeColor = MaterialTheme.colorScheme.secondary
-                        )
-                        StudioToggleButton(
-                            text = stringResource(R.string.studio_move),
-                            emoji = "↕️",
-                            checked = uiState.isMoveEnabled,
-                            onCheckedChange = { onIntent(StudioUiIntent.ToggleMove) },
-                            activeColor = MaterialTheme.colorScheme.primary
                         )
                         StudioIconButton(
                             emoji = "🔄",
