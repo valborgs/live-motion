@@ -38,6 +38,7 @@
 28. [Predictive Back 제스처 취소 시 모델 소실 문제](#28-predictive-back-제스처-취소-시-모델-소실-문제-2026-02-05-업데이트)
 29. [Live2DUiEffect를 통한 렌더링 이벤트 캡슐화](#29-live2duieffect를-통한-렌더링-이벤트-캡슐화-2026-02-05-업데이트)
 30. [핀치 줌에서 싱글 터치 전환 시 위치 튀는 현상 수정](#30-핀치-줌에서-싱글-터치-전환-시-위치-튀는-현상-수정-2026-02-05-업데이트)
+31. [이용약관 동의 기능](#31-이용약관-동의-기능-2026-02-06-업데이트)
 
 ---
 
@@ -3093,3 +3094,156 @@ MotionEvent.ACTION_MOVE -> {
 | 파일 | 변경 내용 |
 |------|----------|
 | `core/live2d/Live2DGLSurfaceView.kt` | `ACTION_POINTER_UP` 처리 추가, `isInProgress` 체크, pointerCount 조건 추가 |
+
+---
+
+## 31. 이용약관 동의 기능 (2026-02-06 업데이트)
+
+### 개요
+
+앱 최초 실행 시 이용약관(Live2D Cubism SDK 라이선스 고지)을 표시하고 사용자 동의를 받아 로컬(DataStore)과 원격(Firebase Firestore)에 저장하는 기능.
+
+### 사용자 플로우
+
+```
+앱 실행 → Intro(1초) → [동의 여부 확인]
+                         ├─ 미동의 → TermsOfServiceScreen → 동의 → Title
+                         └─ 동의 완료 → Title (바로 이동)
+
+Title → 이용약관 버튼 → TermsOfServiceScreen(viewOnly) → 돌아가기 → Title
+```
+
+### 저장 데이터
+
+| 필드 | 로컬(DataStore) | Firestore |
+|------|----------------|-----------|
+| `userId` | `String` (UUID v4) | `string` |
+| `tosVersion` | `String` ("1.0") | `string` |
+| `agreedAt` | `Long` (epoch millis) | `Timestamp` (날짜 형식) |
+| `hasConsented` | `Boolean` | - |
+
+### 아키텍처
+
+**신규 의존성:**
+- `androidx.datastore:datastore-preferences:1.2.0` — 로컬 동의 상태
+- `com.google.firebase:firebase-bom:34.9.0` — Firebase BOM
+- `com.google.firebase:firebase-firestore` — Firestore
+
+**모듈별 역할:**
+
+| 레이어 | 파일 | 역할 |
+|--------|------|------|
+| domain | `UserConsent.kt` | 동의 데이터 클래스 (userId, tosVersion, agreedAt) |
+| domain | `IConsentRepository.kt` | 리포지토리 인터페이스 |
+| core:storage | `ConsentLocalDataSource.kt` | DataStore 기반 로컬 읽기/쓰기 |
+| data | `ConsentRepositoryImpl.kt` | 로컬 저장 + Firestore 저장 |
+| feature:home | `IntroViewModel.kt` | Intro에서 동의 여부 비동기 확인 후 분기 |
+| feature:home | `TermsOfServiceViewModel.kt` | MVI 패턴, 동의 처리 |
+| feature:home | `TermsOfServiceScreen.kt` | 동의 모드 / viewOnly 모드 지원 |
+
+### 주요 구현 결정
+
+#### 1. IntroViewModel — 동의 확인과 1초 딜레이 병렬 실행
+
+DataStore 조회와 splash 딜레이를 `async`로 병렬 실행하여 총 대기 시간이 `max(조회시간, 1초)`가 되도록 구현:
+
+```kotlin
+init {
+    viewModelScope.launch {
+        val consentDeferred = async {
+            try { consentRepository.getLocalConsent() }
+            catch (_: Exception) { null }
+        }
+        delay(1000L)
+        val consent = consentDeferred.await()
+        if (consent != null) _effect.send(IntroEffect.NavigateToTitle)
+        else _effect.send(IntroEffect.NavigateToTermsOfService)
+    }
+}
+```
+
+#### 2. Firestore 저장 실패 허용
+
+Firestore 저장이 실패해도 로컬 저장이 완료되었으면 앱 진행을 허용. Firestore SDK의 오프라인 캐시가 네트워크 복구 시 자동 동기화:
+
+```kotlin
+override suspend fun saveConsent(consent: UserConsent) {
+    localDataSource.saveConsent(consent) // 로컬 먼저 저장
+    try {
+        firestore.collection("consents").document(consent.userId)
+            .set(data).await()
+    } catch (_: Exception) {
+        // 실패 허용 — 오프라인 캐시가 자동 동기화
+    }
+}
+```
+
+**Firestore 오프라인 캐시 자동 동기화 원리:**
+
+Firestore Android SDK는 기본적으로 오프라인 지속성(offline persistence)이 활성화되어 있다.
+
+1. `set()` 호출 시 SDK는 데이터를 먼저 **로컬 디스크 캐시(SQLite)**에 쓰고, 서버 전송을 시도한다.
+2. 네트워크가 없으면 로컬 캐시에는 이미 저장된 상태이고, 해당 쓰기 작업이 **pending writes 큐**에 남는다.
+3. `await()`는 서버 응답(ACK)을 기다리므로 네트워크가 없으면 예외가 발생한다. 하지만 이 시점에서 **로컬 캐시 쓰기는 이미 완료**된 상태다.
+4. 네트워크 복구 시 SDK가 자동으로 pending writes 큐의 작업을 서버에 재전송한다. 앱이 실행 중이기만 하면 별도 코드 없이 동기화된다.
+5. 앱이 완전히 종료된 경우에도 pending writes는 로컬 디스크에 유지되며, 다음 앱 실행 시 SDK 초기화와 함께 미전송 데이터를 자동 전송한다.
+
+따라서 `catch`에서 예외를 무시해도 SDK 내부의 로컬 캐시 + 재전송 메커니즘이 독립적으로 동작하여 데이터 손실이 발생하지 않는다.
+
+#### 3. Firestore Timestamp 타입 사용
+
+`agreedAt`을 Firestore `Timestamp`으로 변환하여 Firebase Console에서 날짜 형식으로 바로 확인 가능:
+
+```kotlin
+"agreedAt" to Timestamp(Date(consent.agreedAt))
+```
+
+#### 4. NavKey.TermsOfService — viewOnly 파라미터
+
+`data class TermsOfService(val viewOnly: Boolean = false)`로 정의하여, 최초 동의 플로우와 Title에서의 재열람을 하나의 화면으로 처리:
+
+- `viewOnly = false`: 스크롤 끝까지 내려야 "동의하고 시작하기" 버튼 활성화
+- `viewOnly = true`: 스크롤 체크 없이 "돌아가기" 버튼만 표시
+
+#### 5. google-services 플러그인은 app 모듈에만 적용
+
+`google-services` 플러그인은 `google-services.json`을 처리하므로 `app` 모듈에만 적용. `data` 모듈은 Firebase 라이브러리 의존성만 추가.
+
+### 에러 핸들링
+
+| 시나리오 | 처리 |
+|---------|------|
+| DataStore 읽기 실패 (파일 손상) | `IntroViewModel`에서 catch → 이용약관 재표시 |
+| DataStore 쓰기 실패 | `TermsOfServiceViewModel`에서 catch → Title로 진행 (다음 실행 시 재표시) |
+| Firestore 저장 실패 (네트워크 오류) | 로컬 저장 완료 상태로 진행. 오프라인 캐시 자동 동기화 |
+| 동의 버튼 중복 탭 | `isLoading=true` 동안 버튼 `enabled=false` |
+| 약관이 짧아 스크롤 불필요 | `maxScroll == 0` 조건으로 즉시 버튼 활성화 |
+| TOS 화면에서 뒤로가기 | Intro가 백스택에서 제거되어 앱 종료 (동의 필수 강제) |
+
+### 관련 파일
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `gradle/libs.versions.toml` | DataStore, Firebase BOM, google-services 의존성 선언 |
+| `app/build.gradle.kts` | google-services 플러그인 적용, Firebase BOM 추가 |
+| `data/build.gradle.kts` | Firebase Firestore 의존성 추가 |
+| `core/storage/build.gradle.kts` | DataStore 의존성 추가 |
+| `feature/home/build.gradle.kts` | Hilt, Lifecycle, domain 의존성 추가 |
+| `domain/.../model/UserConsent.kt` | 동의 데이터 클래스 |
+| `domain/.../repository/IConsentRepository.kt` | 리포지토리 인터페이스 |
+| `core/storage/.../ConsentLocalDataSource.kt` | DataStore 기반 로컬 저장소 |
+| `core/storage/.../di/StorageModule.kt` | ConsentLocalDataSource Hilt 등록 |
+| `data/.../repository/ConsentRepositoryImpl.kt` | 리포지토리 구현 (DataStore + Firestore) |
+| `data/.../di/RepositoryModule.kt` | FirebaseFirestore, IConsentRepository 바인딩 추가 |
+| `core/navigation/.../NavKey.kt` | `TermsOfService(viewOnly)` 라우트 추가 |
+| `core/navigation/.../Navigator.kt` | `navigateToTermsOfService()` 추가 |
+| `app/.../AppNavigatorImpl.kt` | TOS 네비게이션 구현, navigateToTitle 백스택 정리 개선 |
+| `app/.../MainActivity.kt` | NavHost에 TermsOfService 라우트 추가, Intro 분기 |
+| `feature/home/.../IntroScreen.kt` | ViewModel 기반으로 전환 (동의 여부 분기) |
+| `feature/home/.../IntroViewModel.kt` | Intro 화면 ViewModel (async 병렬 조회) |
+| `feature/home/.../TermsOfServiceScreen.kt` | 이용약관 UI (동의/viewOnly 모드) |
+| `feature/home/.../TermsOfServiceViewModel.kt` | MVI ViewModel |
+| `feature/home/.../TermsOfServiceUiIntent.kt` | Intent 정의 (Agree, ScrolledToBottom) |
+| `feature/home/.../TermsOfServiceUiEffect.kt` | Effect 정의 (NavigateToTitle) |
+| `feature/home/.../TitleScreen.kt` | 이용약관 버튼 추가 |
+| `feature/home/.../res/values/strings.xml` | 이용약관 관련 문자열 추가 |

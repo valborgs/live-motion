@@ -11,6 +11,9 @@ sealed interface NavKey {
     data object Title : NavKey
 
     @Serializable
+    data class TermsOfService(val viewOnly: Boolean = false) : NavKey
+
+    @Serializable
     data object Settings : NavKey
 
     @Serializable

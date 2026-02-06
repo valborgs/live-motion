@@ -123,13 +123,23 @@ class MainActivity : ComponentActivity() {
             ) {
                 composable<NavKey.Intro> {
                     IntroScreen(
-                        onTimeout = { navigator.navigateToTitle() }
+                        onNavigateToTitle = { navigator.navigateToTitle() },
+                        onNavigateToTermsOfService = { navigator.navigateToTermsOfService() }
+                    )
+                }
+                composable<NavKey.TermsOfService> { backStackEntry ->
+                    val tos = backStackEntry.toRoute<NavKey.TermsOfService>()
+                    org.comon.home.TermsOfServiceScreen(
+                        viewOnly = tos.viewOnly,
+                        onAgreed = { navigator.navigateToTitle() },
+                        onBack = { navigator.back() }
                     )
                 }
                 composable<NavKey.Title> {
                     TitleScreen(
                         onStudioClick = { navigator.navigateToModelSelect() },
-                        onSettingsClick = { navigator.navigateToSettings() }
+                        onSettingsClick = { navigator.navigateToSettings() },
+                        onTermsOfServiceClick = { navigator.navigateToTermsOfServiceViewOnly() }
                     )
                 }
                 composable<NavKey.Settings> {

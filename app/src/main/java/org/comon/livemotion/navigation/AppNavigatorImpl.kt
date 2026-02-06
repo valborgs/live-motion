@@ -45,9 +45,19 @@ class AppNavigatorImpl(
         navController.navigate(NavKey.Settings)
     }
 
+    override fun navigateToTermsOfService() {
+        navController.navigate(NavKey.TermsOfService()) {
+            popUpTo(NavKey.Intro) { inclusive = true }
+        }
+    }
+
+    fun navigateToTermsOfServiceViewOnly() {
+        navController.navigate(NavKey.TermsOfService(viewOnly = true))
+    }
+
     override fun navigateToTitle() {
         navController.navigate(NavKey.Title) {
-            popUpTo(NavKey.Intro) { inclusive = true }
+            popUpTo(0) { inclusive = true }
         }
     }
 

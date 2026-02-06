@@ -4,7 +4,14 @@
     <string name="title_studio">Studio</string>
     <string name="title_settings">Settings</string>
     <string name="title_background_description">Title Background</string>
+    <string name="title_terms_of_service">이용약관</string>
 
     <!-- IntroScreen -->
     <string name="intro_logo_description">Cubism Logo</string>
+
+    <!-- TermsOfServiceScreen -->
+    <string name="tos_title">이용약관</string>
+    <string name="tos_agree_button">동의하고 시작하기</string>
+    <string name="tos_back_button">돌아가기</string>
+    <string name="tos_content">이 애플리케이션에는 Live2D Inc.가 개발한 Live2D Cubism SDK가 포함되어 있으며, 해당 SDK의 저작권은 Live2D Inc.가 소유하고 있습니다. 본 애플리케이션이 사업의 주요 요소로 활용되고, 이 애플리케이션 또는 이 애플리케이션을 통해 제작된 콘텐츠에 의해 직접적 또는 간접적으로 발생한 연간 매출이 2000만 엔을 초과할 경우, 귀하는 Live2D Inc.와 출판 라이선스 계약을 체결하고 필요한 라이선스 비용을 지불할 의무가 있습니다. 또한, 연간 매출이 2000만 엔을 초과할 경우, 이를 즉시 Live2D Inc.에 통지해야 합니다. 이러한 의무를 위반할 경우, 이는 본 애플리케이션과 관련하여 Live2D Inc.가 허용한 범위를 초과하여 Live2D Cubism SDK를 활용하는 것으로 간주되며, Live2D Inc.의 지적 재산권을 침해하는 행위로 간주될 수 있습니다. 따라서 Live2D Inc.로부터 법적 청구를 받을 가능성이 있습니다.\n\n*이 애플리케이션을 사업의 주요 요소로 활용하는 것에는 VTuber 스트리밍 사업 운영 등을 포함하나 이에 한정되지 않습니다. 단, 판매 촉진을 위한 비디오 콘텐츠 스트리밍은 포함되지 않습니다.</string>
 </resources>

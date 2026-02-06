@@ -16,6 +16,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,7 +34,8 @@ import org.comon.ui.theme.LiveMotionTheme
 @Composable
 fun TitleScreen(
     onStudioClick: () -> Unit,
-    onSettingsClick: () -> Unit
+    onSettingsClick: () -> Unit,
+    onTermsOfServiceClick: () -> Unit
 ) {
     val configuration = LocalConfiguration.current
     val screenHeight = configuration.screenHeightDp.dp
@@ -110,6 +112,18 @@ fun TitleScreen(
                         letterSpacing = 1.sp
                     )
                 }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                TextButton(
+                    onClick = onTermsOfServiceClick
+                ) {
+                    Text(
+                        text = stringResource(R.string.title_terms_of_service),
+                        fontSize = 14.sp,
+                        color = Color.Black.copy(alpha = 0.7f)
+                    )
+                }
             }
         }
     }
@@ -126,7 +140,8 @@ private fun TitleScreenPreview() {
     LiveMotionTheme {
         TitleScreen(
             onStudioClick = {},
-            onSettingsClick = {}
+            onSettingsClick = {},
+            onTermsOfServiceClick = {}
         )
     }
 }

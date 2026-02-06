@@ -27,6 +27,11 @@ interface Navigator {
     fun navigateToSettings()
 
     /**
+     * 이용약관 화면으로 이동합니다.
+     */
+    fun navigateToTermsOfService()
+
+    /**
      * 타이틀 화면으로 이동합니다.
      */
     fun navigateToTitle()

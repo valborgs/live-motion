@@ -15,18 +15,29 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import org.comon.ui.theme.LiveMotionTheme
 
 @Composable
 fun IntroScreen(
-    onTimeout: () -> Unit
+    onNavigateToTitle: () -> Unit,
+    onNavigateToTermsOfService: () -> Unit,
+    viewModel: IntroViewModel = hiltViewModel()
 ) {
     LaunchedEffect(Unit) {
-        delay(1000L)
-        onTimeout()
+        viewModel.effect.collect { effect ->
+            when (effect) {
+                is IntroViewModel.IntroEffect.NavigateToTitle -> onNavigateToTitle()
+                is IntroViewModel.IntroEffect.NavigateToTermsOfService -> onNavigateToTermsOfService()
+            }
+        }
     }
 
+    IntroScreenContent()
+}
+
+@Composable
+private fun IntroScreenContent() {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -47,6 +58,6 @@ fun IntroScreen(
 @Composable
 private fun IntroScreenPreview() {
     LiveMotionTheme {
-        IntroScreen(onTimeout = {})
+        IntroScreenContent()
     }
 }

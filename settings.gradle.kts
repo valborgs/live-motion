@@ -29,7 +29,12 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        flatDir { dirs("libs") }
+        flatDir {
+            dirs("libs")
+            content {
+                includeGroup("Live2DCubismCore")
+            }
+        }
     }
 }
 

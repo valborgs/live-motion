@@ -6,6 +6,7 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import org.comon.storage.ConsentLocalDataSource
 import org.comon.storage.ExternalModelMetadataStore
 import org.comon.storage.ModelCacheManager
 import org.comon.storage.SAFPermissionManager
@@ -40,5 +41,13 @@ object StorageModule {
         @ApplicationContext context: Context
     ): SAFPermissionManager {
         return SAFPermissionManager(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideConsentLocalDataSource(
+        @ApplicationContext context: Context
+    ): ConsentLocalDataSource {
+        return ConsentLocalDataSource(context)
     }
 }
