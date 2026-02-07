@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -23,8 +24,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
+import androidx.core.view.WindowCompat
 import androidx.core.content.ContextCompat
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -66,8 +71,35 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.DARK -> true
             }
 
+            // 상태바 아이콘 색상: 다크모드→흰색, 라이트모드→검정
+            val view = LocalView.current
+            SideEffect {
+                val window = (view.context as android.app.Activity).window
+                WindowCompat.getInsetsController(window, view)
+                    .isAppearanceLightStatusBars = !darkTheme
+            }
+
             LiveMotionTheme(darkTheme = darkTheme) {
-                MainContent()
+                Box {
+                    MainContent()
+                    // 상태바 영역 스크림: 어떤 배경에서든 아이콘 가시성 확보
+                    val scrimColor = if (darkTheme) Color.Black else Color.White
+                    val statusBarHeight = WindowInsets.statusBars
+                        .asPaddingValues().calculateTopPadding()
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(statusBarHeight + 16.dp)
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(
+                                        scrimColor.copy(alpha = 0.5f),
+                                        Color.Transparent
+                                    )
+                                )
+                            )
+                    )
+                }
             }
         }
     }
