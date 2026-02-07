@@ -3,6 +3,7 @@ package org.comon.domain.usecase
 import org.comon.domain.model.FacePose
 import org.comon.domain.model.FacePoseSmoothingState
 import org.comon.domain.model.Live2DParams
+import org.comon.domain.model.TrackingSensitivity
 
 /**
  * FacePose를 Live2D 파라미터로 변환하는 UseCase.
@@ -52,13 +53,14 @@ class MapFacePoseUseCase {
     operator fun invoke(
         facePose: FacePose,
         state: FacePoseSmoothingState,
-        hasLandmarks: Boolean
+        hasLandmarks: Boolean,
+        sensitivity: TrackingSensitivity = TrackingSensitivity()
     ): Pair<Live2DParams, FacePoseSmoothingState> {
         if (!hasLandmarks) {
             // 얼굴이 감지되지 않으면 상태 초기화
             return Pair(Live2DParams.DEFAULT, FacePoseSmoothingState())
         }
-        return map(facePose, state)
+        return map(facePose, state, sensitivity)
     }
 
     /**
@@ -66,7 +68,8 @@ class MapFacePoseUseCase {
      */
     private fun map(
         newPose: FacePose,
-        state: FacePoseSmoothingState
+        state: FacePoseSmoothingState,
+        sensitivity: TrackingSensitivity
     ): Pair<Live2DParams, FacePoseSmoothingState> {
         val lastPose = state.lastPose
 
@@ -84,25 +87,25 @@ class MapFacePoseUseCase {
         )
 
         val newState = FacePoseSmoothingState(lastPose = smoothed)
-        val params = buildParams(smoothed)
+        val params = buildParams(smoothed, sensitivity)
 
         return Pair(Live2DParams(params), newState)
     }
 
-    private fun buildParams(smoothed: FacePose): Map<String, Float> {
+    private fun buildParams(smoothed: FacePose, sensitivity: TrackingSensitivity): Map<String, Float> {
         val params = mutableMapOf<String, Float>()
 
         // ===========================================
         // 머리 회전 파라미터 (AngleX, AngleY, AngleZ)
         // ===========================================
         // Live2D 표준 범위: -30 ~ 30
-        params["ParamAngleX"] = (smoothed.yaw * 30f).coerceIn(-30f, 30f)
+        params["ParamAngleX"] = (smoothed.yaw * 30f * sensitivity.yaw).coerceIn(-30f, 30f)
         // ParamAngleY: Live2D는 양수=위, 음수=아래이므로 부호 반전
-        params["ParamAngleY"] = (-smoothed.pitch * 40f).coerceIn(-30f, 30f)
+        params["ParamAngleY"] = (-smoothed.pitch * 40f * sensitivity.pitch).coerceIn(-30f, 30f)
 
         // AngleZ는 실측 고개 기울기(roll)와 드래그 로직 특유의 수식(X*Y)을 혼합
-        val dragStyleZ = smoothed.yaw * smoothed.pitch * (-30f)
-        val realRollZ = smoothed.roll * 30f
+        val dragStyleZ = smoothed.yaw * smoothed.pitch * (-30f) * sensitivity.yaw * sensitivity.pitch
+        val realRollZ = smoothed.roll * 30f * sensitivity.roll
         params["ParamAngleZ"] = (realRollZ + dragStyleZ).coerceIn(-30f, 30f)
 
         // ===========================================
@@ -126,7 +129,7 @@ class MapFacePoseUseCase {
         // ===========================================
         // 몸 파라미터
         // ===========================================
-        params["ParamBodyAngleX"] = (smoothed.yaw * 10f).coerceIn(-10f, 10f)
+        params["ParamBodyAngleX"] = (smoothed.yaw * 10f * sensitivity.yaw).coerceIn(-10f, 10f)
 
         // ===========================================
         // 시선 파라미터 (Iris Tracking 기반)

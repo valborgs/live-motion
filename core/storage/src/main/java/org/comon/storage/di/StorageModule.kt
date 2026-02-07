@@ -10,6 +10,7 @@ import org.comon.storage.ConsentLocalDataSource
 import org.comon.storage.ExternalModelMetadataStore
 import org.comon.storage.ModelCacheManager
 import org.comon.storage.SAFPermissionManager
+import org.comon.storage.TrackingSettingsLocalDataSource
 import javax.inject.Singleton
 
 /**
@@ -49,5 +50,13 @@ object StorageModule {
         @ApplicationContext context: Context
     ): ConsentLocalDataSource {
         return ConsentLocalDataSource(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideTrackingSettingsLocalDataSource(
+        @ApplicationContext context: Context
+    ): TrackingSettingsLocalDataSource {
+        return TrackingSettingsLocalDataSource(context)
     }
 }

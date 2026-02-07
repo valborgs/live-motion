@@ -15,10 +15,12 @@ import kotlinx.coroutines.launch
 import org.comon.domain.model.FacePose
 import org.comon.domain.model.FacePoseSmoothingState
 import org.comon.domain.model.ModelSource
+import org.comon.domain.model.TrackingSensitivity
 import org.comon.domain.usecase.GetModelMetadataUseCase
 import org.comon.domain.usecase.MapFacePoseUseCase
 import org.comon.live2d.LAppMinimumDelegate
 import org.comon.live2d.Live2DUiEffect
+import org.comon.storage.TrackingSettingsLocalDataSource
 import org.comon.tracking.FaceTracker
 import org.comon.tracking.FaceTrackerFactory
 import org.comon.tracking.TrackingError
@@ -51,11 +53,23 @@ import javax.inject.Inject
 class StudioViewModel @Inject constructor(
     private val faceTrackerFactory: FaceTrackerFactory,
     private val getModelMetadataUseCase: GetModelMetadataUseCase,
-    private val mapFacePoseUseCase: MapFacePoseUseCase
+    private val mapFacePoseUseCase: MapFacePoseUseCase,
+    private val trackingSettingsLocalDataSource: TrackingSettingsLocalDataSource
 ) : ViewModel() {
 
     // EMA 스무딩 상태 (ViewModel에서 관리)
     private var smoothingState = FacePoseSmoothingState()
+
+    // 트래킹 감도 (DataStore에서 실시간 수집)
+    private var currentSensitivity = TrackingSensitivity()
+
+    init {
+        viewModelScope.launch {
+            trackingSettingsLocalDataSource.sensitivityFlow.collect { sensitivity ->
+                currentSensitivity = sensitivity
+            }
+        }
+    }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // FaceTracker (configuration change에서 생존)
@@ -207,7 +221,7 @@ class StudioViewModel @Inject constructor(
      * @return Live2D 파라미터 맵 (ParamAngleX, ParamEyeLOpen 등)
      */
     fun mapFaceParams(facePose: FacePose, hasLandmarks: Boolean): Map<String, Float> {
-        val (params, newState) = mapFacePoseUseCase(facePose, smoothingState, hasLandmarks)
+        val (params, newState) = mapFacePoseUseCase(facePose, smoothingState, hasLandmarks, currentSensitivity)
         smoothingState = newState
         return params.params
     }

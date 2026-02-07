@@ -39,6 +39,7 @@
 29. [Live2DUiEffect를 통한 렌더링 이벤트 캡슐화](#29-live2duieffect를-통한-렌더링-이벤트-캡슐화-2026-02-05-업데이트)
 30. [핀치 줌에서 싱글 터치 전환 시 위치 튀는 현상 수정](#30-핀치-줌에서-싱글-터치-전환-시-위치-튀는-현상-수정-2026-02-05-업데이트)
 31. [이용약관 동의 기능](#31-이용약관-동의-기능-2026-02-06-업데이트)
+32. [트래킹 감도 설정 기능](#32-트래킹-감도-설정-기능-2026-02-07-업데이트)
 
 ---
 
@@ -3247,3 +3248,108 @@ Firestore Android SDK는 기본적으로 오프라인 지속성(offline persiste
 | `feature/home/.../TermsOfServiceUiEffect.kt` | Effect 정의 (NavigateToTitle) |
 | `feature/home/.../TitleScreen.kt` | 이용약관 버튼 추가 |
 | `feature/home/.../res/values/strings.xml` | 이용약관 관련 문자열 추가 |
+
+---
+
+## 32. 트래킹 감도 설정 기능 (2026-02-07 업데이트)
+
+### 개요
+
+사용자마다 얼굴 움직임 범위가 다르기 때문에, Yaw(좌우 회전)/Pitch(상하 회전)/Roll(기울기) 감도를 슬라이더로 조절할 수 있는 설정 기능. 기존 `SettingsScreen`의 "Coming Soon" placeholder를 실제 기능으로 대체.
+
+### 사용자 플로우
+
+```
+Title → Settings → 트래킹 감도 슬라이더 조절 (0.5x ~ 2.0x)
+                   ├─ 즉시 DataStore에 저장
+                   └─ Studio 화면에서 실시간 반영
+
+Studio → FaceTracker → MapFacePoseUseCase(sensitivity) → Live2D 파라미터
+```
+
+### 감도 배율 적용 범위
+
+| 파라미터 | 기존 수식 | 감도 적용 후 |
+|---------|----------|-------------|
+| `ParamAngleX` | `yaw * 30f` | `yaw * 30f * sensitivity.yaw` |
+| `ParamAngleY` | `-pitch * 40f` | `-pitch * 40f * sensitivity.pitch` |
+| `ParamAngleZ` (roll) | `roll * 30f` | `roll * 30f * sensitivity.roll` |
+| `ParamAngleZ` (drag) | `yaw * pitch * (-30f)` | `yaw * pitch * (-30f) * sensitivity.yaw * sensitivity.pitch` |
+| `ParamBodyAngleX` | `yaw * 10f` | `yaw * 10f * sensitivity.yaw` |
+
+눈, 입, 시선 파라미터는 감도 배율을 적용하지 않음 (blendshape 기반으로 이미 정규화된 값).
+
+### 아키텍처
+
+#### 데이터 흐름
+
+```
+Settings Screen → SettingsViewModel → TrackingSettingsLocalDataSource → DataStore
+                                                     ↓ (Flow)
+Studio Screen ← StudioViewModel ← MapFacePoseUseCase(sensitivity) ← TrackingSettingsLocalDataSource
+```
+
+#### 모듈별 역할
+
+| 레이어 | 파일 | 역할 |
+|--------|------|------|
+| domain | `TrackingSensitivity.kt` | 감도 데이터 클래스 (yaw, pitch, roll) |
+| core:storage | `TrackingSettingsLocalDataSource.kt` | DataStore 기반 감도 저장/읽기 |
+| core:storage | `di/StorageModule.kt` | Hilt 등록 |
+| feature:settings | `SettingsViewModel.kt` | MVI ViewModel, DataStore Flow 수집/저장 |
+| feature:settings | `SettingsUiIntent.kt` | Intent (UpdateYaw, UpdatePitch, UpdateRoll, ResetToDefault) |
+| feature:settings | `SettingsScreen.kt` | Screen/Content 분리 패턴, 슬라이더 UI |
+| feature:studio | `StudioViewModel.kt` | 감도 Flow 수집, UseCase에 전달 |
+| domain | `MapFacePoseUseCase.kt` | 감도 배율 적용 |
+
+### 주요 구현 결정
+
+#### 1. DataStore를 직접 사용 (Repository 없이)
+
+`ConsentLocalDataSource`와 동일한 패턴으로 `TrackingSettingsLocalDataSource`를 직접 ViewModel에 주입. 트래킹 감도는 순수 로컬 설정이므로 Repository 레이어가 불필요.
+
+#### 2. StudioViewModel에서 Flow 실시간 수집
+
+`TrackingSettingsLocalDataSource.sensitivityFlow`를 `init`에서 수집하여 `currentSensitivity` 필드에 보관. 설정 화면에서 감도를 변경하면 DataStore → Flow → StudioViewModel로 자동 전파되어 별도 이벤트 없이 실시간 반영.
+
+```kotlin
+// StudioViewModel.kt
+private var currentSensitivity = TrackingSensitivity()
+
+init {
+    viewModelScope.launch {
+        trackingSettingsLocalDataSource.sensitivityFlow.collect { sensitivity ->
+            currentSensitivity = sensitivity
+        }
+    }
+}
+
+fun mapFaceParams(facePose: FacePose, hasLandmarks: Boolean): Map<String, Float> {
+    val (params, newState) = mapFacePoseUseCase(facePose, smoothingState, hasLandmarks, currentSensitivity)
+    smoothingState = newState
+    return params.params
+}
+```
+
+#### 3. Slider steps로 이산적 값 제한
+
+`Slider(steps = 5)`를 사용하여 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0의 7단계로 제한. 미세한 차이에 민감하지 않은 설정이므로 이산적 값이 UX에 적합.
+
+#### 4. feature:settings에 Hilt 도입
+
+기존 `feature:settings`는 Compose만 사용하는 placeholder였으나, ViewModel 도입을 위해 Hilt 플러그인/KSP/hilt-navigation-compose 의존성을 추가.
+
+### 관련 파일
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `domain/.../model/TrackingSensitivity.kt` | 새 파일 — 감도 데이터 클래스 |
+| `domain/.../usecase/MapFacePoseUseCase.kt` | `sensitivity` 파라미터 추가, 배율 적용 |
+| `core/storage/.../TrackingSettingsLocalDataSource.kt` | 새 파일 — DataStore 기반 감도 저장소 |
+| `core/storage/.../di/StorageModule.kt` | `provideTrackingSettingsLocalDataSource()` 추가 |
+| `feature/settings/build.gradle.kts` | Hilt, domain, core:storage, lifecycle 의존성 추가 |
+| `feature/settings/.../SettingsUiIntent.kt` | 새 파일 — Intent 정의 |
+| `feature/settings/.../SettingsViewModel.kt` | 새 파일 — MVI ViewModel |
+| `feature/settings/.../SettingsScreen.kt` | Screen/Content 분리 패턴으로 재작성 |
+| `feature/settings/.../res/values/strings.xml` | 트래킹 감도 관련 문자열 추가 |
+| `feature/studio/.../StudioViewModel.kt` | `TrackingSettingsLocalDataSource` 주입, 감도 Flow 수집 |
