@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.foundation.layout.*
@@ -34,6 +35,7 @@ import androidx.navigation.toRoute
 import dagger.hilt.android.AndroidEntryPoint
 import org.comon.domain.model.ExternalModel
 import org.comon.domain.model.ModelSource
+import org.comon.domain.model.ThemeMode
 import org.comon.navigation.NavKey
 import org.comon.home.IntroScreen
 import org.comon.home.TitleScreen
@@ -41,17 +43,30 @@ import org.comon.settings.SettingsScreen
 import org.comon.studio.ModelSelectScreen
 import org.comon.studio.StudioScreen
 import org.comon.livemotion.navigation.AppNavigatorImpl
+import org.comon.storage.ThemeLocalDataSource
 import org.comon.ui.theme.LiveMotionTheme
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject lateinit var themeLocalDataSource: ThemeLocalDataSource
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            LiveMotionTheme {
+            val themeMode by themeLocalDataSource.themeModeFlow
+                .collectAsState(initial = ThemeMode.SYSTEM)
+
+            val darkTheme = when (themeMode) {
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
+
+            LiveMotionTheme(darkTheme = darkTheme) {
                 MainContent()
             }
         }

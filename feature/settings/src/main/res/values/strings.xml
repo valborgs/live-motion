@@ -4,6 +4,12 @@
     <string name="settings_title">Settings</string>
     <string name="settings_back">Back</string>
 
+    <!-- Theme -->
+    <string name="settings_theme">테마</string>
+    <string name="settings_theme_system">시스템</string>
+    <string name="settings_theme_light">라이트</string>
+    <string name="settings_theme_dark">다크</string>
+
     <!-- Tracking Sensitivity -->
     <string name="settings_tracking_sensitivity">트래킹 감도</string>
     <string name="settings_yaw">좌우 회전 (Yaw)</string>

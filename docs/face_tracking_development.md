@@ -40,6 +40,7 @@
 30. [핀치 줌에서 싱글 터치 전환 시 위치 튀는 현상 수정](#30-핀치-줌에서-싱글-터치-전환-시-위치-튀는-현상-수정-2026-02-05-업데이트)
 31. [이용약관 동의 기능](#31-이용약관-동의-기능-2026-02-06-업데이트)
 32. [트래킹 감도 설정 기능](#32-트래킹-감도-설정-기능-2026-02-07-업데이트)
+33. [다크/라이트 모드 테마 토글](#33-다크라이트-모드-테마-토글-2026-02-07-업데이트)
 
 ---
 
@@ -3373,3 +3374,76 @@ fun mapFaceParams(facePose: FacePose, hasLandmarks: Boolean): Map<String, Float>
 | `feature/settings/.../SettingsScreen.kt` | Screen/Content 분리 패턴으로 재작성 |
 | `feature/settings/.../res/values/strings.xml` | 트래킹 감도 관련 문자열 추가 |
 | `feature/studio/.../StudioViewModel.kt` | `TrackingSettingsLocalDataSource` 주입, 감도 Flow 수집 |
+
+---
+
+## 33. 다크/라이트 모드 테마 토글 (2026-02-07 업데이트)
+
+### 개요
+
+Settings 화면에서 테마를 시스템 / 라이트 / 다크 중 선택할 수 있는 토글 기능. 기본값은 시스템 설정을 따라가며, 선택 값은 DataStore에 영속 저장되어 앱 재시작 후에도 유지.
+
+### 사용자 플로우
+
+```
+Title → Settings → 테마 SegmentedButton (시스템 / 라이트 / 다크)
+                   ├─ 즉시 DataStore에 저장
+                   └─ MainActivity에서 실시간 반영 (앱 전체 테마 변경)
+```
+
+### 아키텍처
+
+#### 데이터 흐름
+
+```
+Settings Screen → SettingsViewModel → ThemeLocalDataSource → DataStore
+                                                ↓ (Flow)
+MainActivity → themeLocalDataSource.themeModeFlow → LiveMotionTheme(darkTheme)
+```
+
+`LiveMotionTheme`은 기존에 `isSystemInDarkTheme()` 기본값을 사용했으나, 이제 `MainActivity`에서 `ThemeMode`에 따라 `darkTheme` 파라미터를 명시적으로 전달.
+
+#### 모듈별 역할
+
+| 레이어 | 파일 | 역할 |
+|--------|------|------|
+| domain | `ThemeMode.kt` | enum (SYSTEM, LIGHT, DARK) |
+| core:storage | `ThemeLocalDataSource.kt` | DataStore 기반 테마 모드 저장/읽기 |
+| core:storage | `di/StorageModule.kt` | Hilt 등록 |
+| feature:settings | `SettingsViewModel.kt` | 테마 상태 수집/저장 |
+| feature:settings | `SettingsUiIntent.kt` | `UpdateThemeMode` Intent |
+| feature:settings | `SettingsScreen.kt` | `SingleChoiceSegmentedButtonRow` UI |
+| app | `MainActivity.kt` | `ThemeLocalDataSource` 주입, Flow 수집, `LiveMotionTheme` 전달 |
+
+### 주요 구현 결정
+
+#### 1. ThemeLocalDataSource를 별도 DataStore로 분리
+
+트래킹 설정과 테마 설정은 다른 도메인 관심사이므로 `tracking_settings`와 `theme_settings`를 별도 DataStore로 분리. `ThemeMode` enum의 `name`을 `stringPreferencesKey`로 저장하고, 읽을 때 `valueOf`로 복원 (잘못된 값은 `SYSTEM` 폴백).
+
+#### 2. MainActivity에서 직접 ThemeLocalDataSource 주입
+
+테마는 앱 최상위(`LiveMotionTheme`)에서 적용되어야 하므로, `@Inject lateinit var`로 `MainActivity`에 직접 주입. `collectAsState(initial = ThemeMode.SYSTEM)`으로 초기값을 시스템 모드로 설정하여 DataStore 로딩 전에도 자연스러운 테마 표시.
+
+#### 3. SingleChoiceSegmentedButtonRow 사용
+
+Material 3의 `SingleChoiceSegmentedButtonRow`를 사용하여 3개 옵션을 시각적으로 배치. RadioButton 대비 더 간결하고 터치 영역이 넓어 모바일 UX에 적합.
+
+#### 4. Hilt 버전 업그레이드 (2.55 → 2.56.2)
+
+Kotlin 2.3.0의 metadata 버전(2.2.0)과 기존 Hilt 2.55의 `kotlin-metadata-jvm` 호환성 문제로 `hiltJavaCompileDebug` 빌드 실패 발생. Hilt 2.56.2로 업그레이드하여 해결. 루트 `build.gradle.kts`와 `libs.versions.toml` 모두 동기화 필요.
+
+### 관련 파일
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `domain/.../model/ThemeMode.kt` | 새 파일 — SYSTEM/LIGHT/DARK enum |
+| `core/storage/.../ThemeLocalDataSource.kt` | 새 파일 — DataStore 기반 테마 저장소 |
+| `core/storage/.../di/StorageModule.kt` | `provideThemeLocalDataSource()` 추가 |
+| `feature/settings/.../SettingsUiIntent.kt` | `UpdateThemeMode` Intent 추가 |
+| `feature/settings/.../SettingsViewModel.kt` | `ThemeLocalDataSource` 주입, 테마 상태 수집/저장 |
+| `feature/settings/.../SettingsScreen.kt` | `ThemeModeSelector` (SegmentedButton) UI 추가 |
+| `feature/settings/.../res/values/strings.xml` | 테마 관련 문자열 4개 추가 |
+| `app/.../MainActivity.kt` | `ThemeLocalDataSource` 주입, `themeModeFlow` 수집, `LiveMotionTheme(darkTheme)` 전달 |
+| `build.gradle.kts` | Hilt 2.55 → 2.56.2 |
+| `gradle/libs.versions.toml` | Hilt 2.55 → 2.56.2 |

@@ -8,20 +8,24 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.comon.domain.model.ThemeMode
 import org.comon.domain.model.TrackingSensitivity
+import org.comon.storage.ThemeLocalDataSource
 import org.comon.storage.TrackingSettingsLocalDataSource
 import javax.inject.Inject
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
-    private val trackingSettingsLocalDataSource: TrackingSettingsLocalDataSource
+    private val trackingSettingsLocalDataSource: TrackingSettingsLocalDataSource,
+    private val themeLocalDataSource: ThemeLocalDataSource
 ) : ViewModel() {
 
     data class SettingsUiState(
         val yaw: Float = 1.0f,
         val pitch: Float = 1.0f,
         val roll: Float = 1.0f,
-        val smoothing: Float = 0.4f
+        val smoothing: Float = 0.4f,
+        val themeMode: ThemeMode = ThemeMode.SYSTEM
     )
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -40,6 +44,11 @@ class SettingsViewModel @Inject constructor(
                 }
             }
         }
+        viewModelScope.launch {
+            themeLocalDataSource.themeModeFlow.collect { mode ->
+                _uiState.update { it.copy(themeMode = mode) }
+            }
+        }
     }
 
     fun onIntent(intent: SettingsUiIntent) {
@@ -48,6 +57,7 @@ class SettingsViewModel @Inject constructor(
             is SettingsUiIntent.UpdatePitch -> updateSensitivity(pitch = intent.value)
             is SettingsUiIntent.UpdateRoll -> updateSensitivity(roll = intent.value)
             is SettingsUiIntent.UpdateSmoothing -> updateSensitivity(smoothing = intent.value)
+            is SettingsUiIntent.UpdateThemeMode -> updateThemeMode(intent.mode)
             is SettingsUiIntent.ResetToDefault -> resetToDefault()
         }
     }
@@ -62,6 +72,13 @@ class SettingsViewModel @Inject constructor(
         _uiState.update { it.copy(yaw = yaw, pitch = pitch, roll = roll, smoothing = smoothing) }
         viewModelScope.launch {
             trackingSettingsLocalDataSource.saveSensitivity(sensitivity)
+        }
+    }
+
+    private fun updateThemeMode(mode: ThemeMode) {
+        _uiState.update { it.copy(themeMode = mode) }
+        viewModelScope.launch {
+            themeLocalDataSource.saveThemeMode(mode)
         }
     }
 

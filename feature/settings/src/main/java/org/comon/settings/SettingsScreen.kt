@@ -16,6 +16,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -28,6 +31,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import org.comon.domain.model.ThemeMode
 import org.comon.ui.theme.LiveMotionTheme
 
 @Composable
@@ -72,7 +76,28 @@ private fun SettingsScreenContent(
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp)
         ) {
+            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            // 테마 설정
+            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             Spacer(modifier = Modifier.height(8.dp))
+
+            Text(
+                text = stringResource(R.string.settings_theme),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            ThemeModeSelector(
+                selected = uiState.themeMode,
+                onSelect = { onIntent(SettingsUiIntent.UpdateThemeMode(it)) }
+            )
+
+            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            // 트래킹 감도
+            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            Spacer(modifier = Modifier.height(24.dp))
 
             Text(
                 text = stringResource(R.string.settings_tracking_sensitivity),
@@ -100,6 +125,9 @@ private fun SettingsScreenContent(
                 onValueChange = { onIntent(SettingsUiIntent.UpdateRoll(it)) }
             )
 
+            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            // 스무딩 강도
+            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             Spacer(modifier = Modifier.height(24.dp))
 
             Text(
@@ -122,6 +150,31 @@ private fun SettingsScreenContent(
                 modifier = Modifier.align(Alignment.End)
             ) {
                 Text(stringResource(R.string.settings_reset_to_default))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ThemeModeSelector(
+    selected: ThemeMode,
+    onSelect: (ThemeMode) -> Unit
+) {
+    val options = listOf(
+        ThemeMode.SYSTEM to stringResource(R.string.settings_theme_system),
+        ThemeMode.LIGHT to stringResource(R.string.settings_theme_light),
+        ThemeMode.DARK to stringResource(R.string.settings_theme_dark)
+    )
+
+    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+        options.forEachIndexed { index, (mode, label) ->
+            SegmentedButton(
+                selected = selected == mode,
+                onClick = { onSelect(mode) },
+                shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size)
+            ) {
+                Text(label)
             }
         }
     }
