@@ -3255,12 +3255,13 @@ Firestore Android SDK는 기본적으로 오프라인 지속성(offline persiste
 
 ### 개요
 
-사용자마다 얼굴 움직임 범위가 다르기 때문에, Yaw(좌우 회전)/Pitch(상하 회전)/Roll(기울기) 감도를 슬라이더로 조절할 수 있는 설정 기능. 기존 `SettingsScreen`의 "Coming Soon" placeholder를 실제 기능으로 대체.
+사용자마다 얼굴 움직임 범위가 다르기 때문에, Yaw(좌우 회전)/Pitch(상하 회전)/Roll(기울기) 감도를 슬라이더로 조절할 수 있는 설정 기능. 또한 EMA 스무딩 계수(alpha)를 조절하여 부드러움과 반응성 사이의 균형을 맞출 수 있음. 기존 `SettingsScreen`의 "Coming Soon" placeholder를 실제 기능으로 대체.
 
 ### 사용자 플로우
 
 ```
 Title → Settings → 트래킹 감도 슬라이더 조절 (0.5x ~ 2.0x)
+                   스무딩 강도 슬라이더 조절 (0.1 ~ 0.8)
                    ├─ 즉시 DataStore에 저장
                    └─ Studio 화면에서 실시간 반영
 
@@ -3279,6 +3280,18 @@ Studio → FaceTracker → MapFacePoseUseCase(sensitivity) → Live2D 파라미�
 
 눈, 입, 시선 파라미터는 감도 배율을 적용하지 않음 (blendshape 기반으로 이미 정규화된 값).
 
+### 스무딩 강도 설정
+
+EMA 스무딩 계수(alpha)를 사용자가 조절할 수 있도록 함. 기존에는 `MapFacePoseUseCase`에 `alpha = 0.4f`로 하드코딩되어 있었음.
+
+| alpha 값 | 특성 | 용도 |
+|----------|------|------|
+| 0.1 ~ 0.3 | 부드럽지만 반응 느림 | 떨림 억제, 자연스러운 움직임 |
+| 0.3 ~ 0.5 | 부드러움과 반응성 균형 | 일반적 사용 (기본값 0.4) |
+| 0.5 ~ 0.8 | 빠른 반응, 떨림 가능 | 빠른 동작 추적, 게임 |
+
+`TrackingSensitivity.smoothing` 필드로 관리되며, `MapFacePoseUseCase.smooth()` 함수에 alpha로 전달됨.
+
 ### 아키텍처
 
 #### 데이터 흐름
@@ -3293,14 +3306,14 @@ Studio Screen ← StudioViewModel ← MapFacePoseUseCase(sensitivity) ← Tracki
 
 | 레이어 | 파일 | 역할 |
 |--------|------|------|
-| domain | `TrackingSensitivity.kt` | 감도 데이터 클래스 (yaw, pitch, roll) |
+| domain | `TrackingSensitivity.kt` | 감도 데이터 클래스 (yaw, pitch, roll, smoothing) |
 | core:storage | `TrackingSettingsLocalDataSource.kt` | DataStore 기반 감도 저장/읽기 |
 | core:storage | `di/StorageModule.kt` | Hilt 등록 |
 | feature:settings | `SettingsViewModel.kt` | MVI ViewModel, DataStore Flow 수집/저장 |
-| feature:settings | `SettingsUiIntent.kt` | Intent (UpdateYaw, UpdatePitch, UpdateRoll, ResetToDefault) |
-| feature:settings | `SettingsScreen.kt` | Screen/Content 분리 패턴, 슬라이더 UI |
+| feature:settings | `SettingsUiIntent.kt` | Intent (UpdateYaw, UpdatePitch, UpdateRoll, UpdateSmoothing, ResetToDefault) |
+| feature:settings | `SettingsScreen.kt` | Screen/Content 분리 패턴, 감도 슬라이더 + 스무딩 슬라이더 UI |
 | feature:studio | `StudioViewModel.kt` | 감도 Flow 수집, UseCase에 전달 |
-| domain | `MapFacePoseUseCase.kt` | 감도 배율 적용 |
+| domain | `MapFacePoseUseCase.kt` | 감도 배율 적용, 스무딩 alpha 외부화 |
 
 ### 주요 구현 결정
 
@@ -3333,7 +3346,14 @@ fun mapFaceParams(facePose: FacePose, hasLandmarks: Boolean): Map<String, Float>
 
 #### 3. Slider steps로 이산적 값 제한
 
-`Slider(steps = 5)`를 사용하여 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0의 7단계로 제한. 미세한 차이에 민감하지 않은 설정이므로 이산적 값이 UX에 적합.
+- 감도 슬라이더: `Slider(steps = 5)` → 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0 (7단계)
+- 스무딩 슬라이더: `Slider(steps = 6)` → 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8 (8단계)
+
+미세한 차이에 민감하지 않은 설정이므로 이산적 값이 UX에 적합. 스무딩 슬라이더는 좌측 "부드러움" / 우측 "빠른 반응" 라벨로 직관적 이해를 도움.
+
+#### 5. 스무딩 alpha 외부화
+
+기존 `MapFacePoseUseCase`의 `private val alpha = 0.4f`를 제거하고, `TrackingSensitivity.smoothing` 값을 `map()` 내부에서 `smooth(last, current, alpha)` 함수에 전달하도록 변경. UseCase가 외부 설정에 의존하되, 기본값은 `TrackingSensitivity()` 생성자에서 0.4f로 유지되므로 호환성에 영향 없음.
 
 #### 4. feature:settings에 Hilt 도입
 
@@ -3343,8 +3363,8 @@ fun mapFaceParams(facePose: FacePose, hasLandmarks: Boolean): Map<String, Float>
 
 | 파일 | 변경 내용 |
 |------|----------|
-| `domain/.../model/TrackingSensitivity.kt` | 새 파일 — 감도 데이터 클래스 |
-| `domain/.../usecase/MapFacePoseUseCase.kt` | `sensitivity` 파라미터 추가, 배율 적용 |
+| `domain/.../model/TrackingSensitivity.kt` | 새 파일 — 감도 + 스무딩 데이터 클래스 |
+| `domain/.../usecase/MapFacePoseUseCase.kt` | `sensitivity` 파라미터 추가, 배율 적용, 하드코딩 alpha 제거 → `sensitivity.smoothing` 사용 |
 | `core/storage/.../TrackingSettingsLocalDataSource.kt` | 새 파일 — DataStore 기반 감도 저장소 |
 | `core/storage/.../di/StorageModule.kt` | `provideTrackingSettingsLocalDataSource()` 추가 |
 | `feature/settings/build.gradle.kts` | Hilt, domain, core:storage, lifecycle 의존성 추가 |

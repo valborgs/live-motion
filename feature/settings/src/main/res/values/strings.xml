@@ -10,5 +10,12 @@
     <string name="settings_pitch">상하 회전 (Pitch)</string>
     <string name="settings_roll">기울기 (Roll)</string>
     <string name="settings_sensitivity_format">%.1fx</string>
+
+    <!-- Smoothing -->
+    <string name="settings_smoothing">스무딩 강도</string>
+    <string name="settings_smoothing_label">EMA 알파</string>
+    <string name="settings_smoothing_smooth">부드러움</string>
+    <string name="settings_smoothing_responsive">빠른 반응</string>
+
     <string name="settings_reset_to_default">초기화</string>
 </resources>

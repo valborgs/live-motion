@@ -39,8 +39,9 @@ class MapFacePoseUseCase {
      * - 낮은 값 (0.1~0.3): 부드럽지만 반응이 느림 (떨림 억제에 효과적)
      * - 중간 값 (0.3~0.5): 부드러움과 반응성의 균형
      * - 높은 값 (0.5~0.8): 빠른 반응이지만 떨림이 생길 수 있음
+     *
+     * 기본값 0.4f, Settings에서 TrackingSensitivity.smoothing으로 조절 가능
      */
-    private val alpha = 0.4f
 
     /**
      * FacePose를 Live2D 파라미터로 변환합니다.
@@ -74,16 +75,17 @@ class MapFacePoseUseCase {
         val lastPose = state.lastPose
 
         // EMA 스무딩 (모든 필드에 적용)
+        val alpha = sensitivity.smoothing
         val smoothed = FacePose(
-            yaw = smooth(lastPose.yaw, newPose.yaw),
-            pitch = smooth(lastPose.pitch, newPose.pitch),
-            roll = smooth(lastPose.roll, newPose.roll),
-            mouthOpen = smooth(lastPose.mouthOpen, newPose.mouthOpen),
-            mouthForm = smooth(lastPose.mouthForm, newPose.mouthForm),
-            eyeLOpen = smooth(lastPose.eyeLOpen, newPose.eyeLOpen),
-            eyeROpen = smooth(lastPose.eyeROpen, newPose.eyeROpen),
-            eyeBallX = smooth(lastPose.eyeBallX, newPose.eyeBallX),
-            eyeBallY = smooth(lastPose.eyeBallY, newPose.eyeBallY)
+            yaw = smooth(lastPose.yaw, newPose.yaw, alpha),
+            pitch = smooth(lastPose.pitch, newPose.pitch, alpha),
+            roll = smooth(lastPose.roll, newPose.roll, alpha),
+            mouthOpen = smooth(lastPose.mouthOpen, newPose.mouthOpen, alpha),
+            mouthForm = smooth(lastPose.mouthForm, newPose.mouthForm, alpha),
+            eyeLOpen = smooth(lastPose.eyeLOpen, newPose.eyeLOpen, alpha),
+            eyeROpen = smooth(lastPose.eyeROpen, newPose.eyeROpen, alpha),
+            eyeBallX = smooth(lastPose.eyeBallX, newPose.eyeBallX, alpha),
+            eyeBallY = smooth(lastPose.eyeBallY, newPose.eyeBallY, alpha)
         )
 
         val newState = FacePoseSmoothingState(lastPose = smoothed)
@@ -141,7 +143,7 @@ class MapFacePoseUseCase {
         return params
     }
 
-    private fun smooth(last: Float, current: Float): Float {
+    private fun smooth(last: Float, current: Float, alpha: Float): Float {
         return last + alpha * (current - last)
     }
 }

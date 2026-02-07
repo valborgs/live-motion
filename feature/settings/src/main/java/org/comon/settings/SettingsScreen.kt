@@ -26,7 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.comon.ui.theme.LiveMotionTheme
 
@@ -100,6 +100,21 @@ private fun SettingsScreenContent(
                 onValueChange = { onIntent(SettingsUiIntent.UpdateRoll(it)) }
             )
 
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = stringResource(R.string.settings_smoothing),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            SmoothingSlider(
+                value = uiState.smoothing,
+                onValueChange = { onIntent(SettingsUiIntent.UpdateSmoothing(it)) }
+            )
+
             Spacer(modifier = Modifier.height(8.dp))
 
             OutlinedButton(
@@ -140,6 +155,54 @@ private fun SensitivitySlider(
             onValueChange = onValueChange,
             valueRange = 0.5f..2.0f,
             steps = 5,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+@Composable
+private fun SmoothingSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit
+) {
+    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.settings_smoothing_label),
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Text(
+                text = String.format("%.1f", value),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = stringResource(R.string.settings_smoothing_smooth),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = stringResource(R.string.settings_smoothing_responsive),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = 0.1f..0.8f,
+            steps = 6,
             modifier = Modifier.fillMaxWidth()
         )
     }

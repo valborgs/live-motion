@@ -20,7 +20,8 @@ class SettingsViewModel @Inject constructor(
     data class SettingsUiState(
         val yaw: Float = 1.0f,
         val pitch: Float = 1.0f,
-        val roll: Float = 1.0f
+        val roll: Float = 1.0f,
+        val smoothing: Float = 0.4f
     )
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -33,7 +34,8 @@ class SettingsViewModel @Inject constructor(
                     it.copy(
                         yaw = sensitivity.yaw,
                         pitch = sensitivity.pitch,
-                        roll = sensitivity.roll
+                        roll = sensitivity.roll,
+                        smoothing = sensitivity.smoothing
                     )
                 }
             }
@@ -45,6 +47,7 @@ class SettingsViewModel @Inject constructor(
             is SettingsUiIntent.UpdateYaw -> updateSensitivity(yaw = intent.value)
             is SettingsUiIntent.UpdatePitch -> updateSensitivity(pitch = intent.value)
             is SettingsUiIntent.UpdateRoll -> updateSensitivity(roll = intent.value)
+            is SettingsUiIntent.UpdateSmoothing -> updateSensitivity(smoothing = intent.value)
             is SettingsUiIntent.ResetToDefault -> resetToDefault()
         }
     }
@@ -52,16 +55,17 @@ class SettingsViewModel @Inject constructor(
     private fun updateSensitivity(
         yaw: Float = _uiState.value.yaw,
         pitch: Float = _uiState.value.pitch,
-        roll: Float = _uiState.value.roll
+        roll: Float = _uiState.value.roll,
+        smoothing: Float = _uiState.value.smoothing
     ) {
-        val sensitivity = TrackingSensitivity(yaw = yaw, pitch = pitch, roll = roll)
-        _uiState.update { it.copy(yaw = yaw, pitch = pitch, roll = roll) }
+        val sensitivity = TrackingSensitivity(yaw = yaw, pitch = pitch, roll = roll, smoothing = smoothing)
+        _uiState.update { it.copy(yaw = yaw, pitch = pitch, roll = roll, smoothing = smoothing) }
         viewModelScope.launch {
             trackingSettingsLocalDataSource.saveSensitivity(sensitivity)
         }
     }
 
     private fun resetToDefault() {
-        updateSensitivity(yaw = 1.0f, pitch = 1.0f, roll = 1.0f)
+        updateSensitivity(yaw = 1.0f, pitch = 1.0f, roll = 1.0f, smoothing = 0.4f)
     }
 }

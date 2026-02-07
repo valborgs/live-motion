@@ -16,6 +16,7 @@ class TrackingSettingsLocalDataSource(private val context: Context) {
         private val KEY_YAW = floatPreferencesKey("sensitivity_yaw")
         private val KEY_PITCH = floatPreferencesKey("sensitivity_pitch")
         private val KEY_ROLL = floatPreferencesKey("sensitivity_roll")
+        private val KEY_SMOOTHING = floatPreferencesKey("smoothing")
     }
 
     val sensitivityFlow: Flow<TrackingSensitivity> =
@@ -23,7 +24,8 @@ class TrackingSettingsLocalDataSource(private val context: Context) {
             TrackingSensitivity(
                 yaw = prefs[KEY_YAW] ?: 1.0f,
                 pitch = prefs[KEY_PITCH] ?: 1.0f,
-                roll = prefs[KEY_ROLL] ?: 1.0f
+                roll = prefs[KEY_ROLL] ?: 1.0f,
+                smoothing = prefs[KEY_SMOOTHING] ?: 0.4f
             )
         }
 
@@ -32,6 +34,7 @@ class TrackingSettingsLocalDataSource(private val context: Context) {
             prefs[KEY_YAW] = sensitivity.yaw
             prefs[KEY_PITCH] = sensitivity.pitch
             prefs[KEY_ROLL] = sensitivity.roll
+            prefs[KEY_SMOOTHING] = sensitivity.smoothing
         }
     }
 }
