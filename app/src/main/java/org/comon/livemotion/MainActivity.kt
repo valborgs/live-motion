@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -37,7 +38,15 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
+import com.google.android.gms.ads.AdError
+import com.google.android.gms.ads.AdRequest
+import com.google.android.gms.ads.FullScreenContentCallback
+import com.google.android.gms.ads.LoadAdError
+import com.google.android.gms.ads.rewarded.RewardedAd
+import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback
+import androidx.compose.ui.window.Dialog
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.delay
 import org.comon.domain.model.ExternalModel
 import org.comon.domain.model.ModelSource
 import org.comon.domain.model.ThemeMode
@@ -164,6 +173,39 @@ class MainActivity : ComponentActivity() {
             val navController = rememberNavController()
             val navigator = remember(navController) { AppNavigatorImpl(navController) }
 
+            // 보상형 광고 상태 (NavHost 상위에서 관리하여 조기 프리로드)
+            var rewardedAd by remember { mutableStateOf<RewardedAd?>(null) }
+            var isAdLoading by remember { mutableStateOf(false) }
+
+            val loadRewardedAd: () -> Unit = remember {
+                {
+                    if (!isAdLoading) {
+                        isAdLoading = true
+                        // TODO: 출시 시 실제 광고 단위 ID로 교체 필요
+                        RewardedAd.load(
+                            activity,
+                            "ca-app-pub-3940256099942544/5224354917", // 테스트 광고 단위 ID
+                            AdRequest.Builder().build(),
+                            object : RewardedAdLoadCallback() {
+                                override fun onAdLoaded(ad: RewardedAd) {
+                                    rewardedAd = ad
+                                    isAdLoading = false
+                                }
+                                override fun onAdFailedToLoad(error: LoadAdError) {
+                                    rewardedAd = null
+                                    isAdLoading = false
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+
+            // 앱 진입 시 즉시 광고 프리로드
+            LaunchedEffect(Unit) {
+                loadRewardedAd()
+            }
+
             NavHost(
                 navController = navController,
                 startDestination = NavKey.Intro
@@ -195,13 +237,73 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 composable<NavKey.ModelSelect> { backStackEntry ->
+                    // 광고 대기 중인 모델 소스
+                    var pendingModelSource by remember { mutableStateOf<ModelSource?>(null) }
+
+                    // 폴백: 이전 로드 실패 시 재시도
+                    LaunchedEffect(Unit) {
+                        if (rewardedAd == null && !isAdLoading) {
+                            loadRewardedAd()
+                        }
+                    }
+
+                    // 광고 표시 후 네비게이션 처리
+                    val showAdAndNavigate: (RewardedAd, ModelSource) -> Unit = remember {
+                        { ad: RewardedAd, modelSource: ModelSource ->
+                            ad.fullScreenContentCallback = object : FullScreenContentCallback() {
+                                override fun onAdDismissedFullScreenContent() {
+                                    rewardedAd = null
+                                    navigator.navigateToStudio(modelSource)
+                                    loadRewardedAd()
+                                }
+                                override fun onAdFailedToShowFullScreenContent(adError: AdError) {
+                                    Log.e("admob", "$adError")
+                                    rewardedAd = null
+                                    navigator.navigateToStudio(modelSource)
+                                    loadRewardedAd()
+                                }
+                            }
+                            ad.show(activity) { /* 보상 획득 */ }
+                        }
+                    }
+
+                    // 광고 로딩 완료 시 대기 중인 모델이 있으면 자동 표시
+                    LaunchedEffect(rewardedAd) {
+                        val pending = pendingModelSource ?: return@LaunchedEffect
+                        val ad = rewardedAd ?: return@LaunchedEffect
+                        pendingModelSource = null
+                        showAdAndNavigate(ad, pending)
+                    }
+
+                    // 5초 타임아웃: 광고 로딩이 너무 오래 걸리면 스킵
+                    LaunchedEffect(pendingModelSource) {
+                        val pending = pendingModelSource ?: return@LaunchedEffect
+                        delay(5000L)
+                        if (pendingModelSource != null) {
+                            pendingModelSource = null
+                            navigator.navigateToStudio(pending)
+                        }
+                    }
+
+                    // 광고 대기 중 로딩 다이얼로그
+                    if (pendingModelSource != null) {
+                        AdLoadingDialog()
+                    }
+
                     // savedStateHandle에서 에러 메시지 읽기
                     val errorMessage by backStackEntry.savedStateHandle
                         .getStateFlow<String?>("model_load_error", null)
                         .collectAsState()
 
                     ModelSelectScreen(
-                        onModelSelected = { modelSource -> navigator.navigateToStudio(modelSource) },
+                        onModelSelected = { modelSource ->
+                            val ad = rewardedAd
+                            when {
+                                ad != null -> showAdAndNavigate(ad, modelSource)
+                                isAdLoading -> pendingModelSource = modelSource
+                                else -> navigator.navigateToStudio(modelSource)
+                            }
+                        },
                         errorMessage = errorMessage,
                         onErrorConsumed = {
                             // 에러 메시지 소비 후 제거
@@ -269,6 +371,33 @@ class MainActivity : ComponentActivity() {
 
     // Live2D lifecycle은 Live2DScreen에서 관리
     // Activity lifecycle에서는 관리하지 않음 (SAF picker 등 다른 Activity가 열릴 때 문제 방지)
+}
+
+@Composable
+private fun AdLoadingDialog() {
+    Dialog(onDismissRequest = { /* 취소 불가 */ }) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                CircularProgressIndicator()
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "잠시만 기다려주세요...",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
 }
 
 @Composable

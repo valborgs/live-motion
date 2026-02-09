@@ -17,35 +17,39 @@ User will do it manually.
 ```
 app → feature:home     → core:ui
     → feature:settings → core:ui
+                       → core:storage
     → feature:studio   → core:tracking → domain
                        → core:live2d   → live2d:framework → Live2DCubismCore.aar
                        → core:storage
                        → core:ui
                        → core:navigation
+    → core:common      → core:tracking, core:storage (DI wiring)
     → core:navigation
     → domain
-    → data
+    → data             → core:storage, domain (repository impls)
 ```
 
 Dependency rules:
 - `domain` — pure Kotlin, no Android dependencies, no module dependencies
-- `core:*` — may depend on `domain` only
+- `core:*` — may depend on `domain` only (except `core:common` which wires DI across core modules)
 - `feature:*` — may depend on `core:*` and `domain`
+- `data` — may depend on `core:storage` and `domain`
 - `app` — may depend on any module; contains only `MainActivity` and navigation setup
 
 ### Key Modules
 
 | Module | Purpose | Language |
 |--------|---------|----------|
-| `domain` | Data classes (`FacePose`, `ModelSource`) — pure Kotlin, no Android deps | Kotlin |
-| `data` | Repository implementations, Hilt modules for UseCases | Kotlin |
-| `core:tracking` | `FaceTracker` (CameraX + MediaPipe) — face detection and landmark extraction | Kotlin |
+| `domain` | Data classes (`FacePose`, `ExternalModel`, `UserConsent`, `TrackingSensitivity`, `ThemeMode`), repository interfaces, UseCases — pure Kotlin, no Android deps | Kotlin |
+| `data` | Repository implementations (`ModelRepositoryImpl`, `ExternalModelRepositoryImpl`, `ConsentRepositoryImpl`), Hilt modules for UseCases and Repositories, Firebase Firestore integration | Kotlin |
+| `core:common` | App-level DI wiring (`AppModule` — provides `ModelAssetReader`, `FaceTrackerFactory`), shared utilities (`ModelAssetReader`) | Kotlin |
+| `core:tracking` | `FaceTracker` (CameraX + MediaPipe) — face detection and landmark extraction, `FaceTrackerFactory` | Kotlin |
 | `core:live2d` | Live2D rendering wrapper — `Live2DScreen` composable, `Live2DGLSurfaceView`, `LAppMinimum*` Java classes | Kotlin + Java |
 | `core:navigation` | `NavKey` sealed interface for type-safe navigation, `Navigator` interface | Kotlin |
-| `core:storage` | SAF permission management, model caching, external model metadata | Kotlin |
-| `core:ui` | Shared Compose theme (colors, typography) | Kotlin |
-| `feature:home` | `TitleScreen` (app entry), `IntroScreen` (Cubism splash) | Kotlin |
-| `feature:settings` | `SettingsScreen` (app settings) | Kotlin |
+| `core:storage` | SAF permission management, model caching, external model metadata, DataStore-based local data sources (`ConsentLocalDataSource`, `ThemeLocalDataSource`, `TrackingSettingsLocalDataSource`) | Kotlin |
+| `core:ui` | Shared Compose theme (colors, typography), reusable UI components (snackbar) | Kotlin |
+| `feature:home` | `IntroScreen` (Cubism splash), `TitleScreen` (app entry), `TermsOfServiceScreen` (이용약관 동의) | Kotlin |
+| `feature:settings` | `SettingsScreen` (테마 모드 전환, 트래킹 감도/스무딩 조절) | Kotlin |
 | `feature:studio` | `StudioScreen` (tracking+rendering), `ModelSelectScreen` (model picker) | Kotlin |
 | `live2d:framework` | Live2D Cubism SDK Framework — vendored Java library, do not modify | Java |
 
@@ -64,9 +68,10 @@ Dependency rules:
 `MainActivity` → `NavHost` with routes:
 - `NavKey.Intro` → `IntroScreen` (Cubism logo splash, 1s timeout)
 - `NavKey.Title` → `TitleScreen` (Studio/Settings buttons)
+- `NavKey.TermsOfService(viewOnly)` → `TermsOfServiceScreen` (이용약관 동의, viewOnly=true면 조회 전용)
 - `NavKey.Settings` → `SettingsScreen`
-- `NavKey.ModelSelect` → `ModelSelectScreen` (scans assets for folders containing `{name}.model3.json`)
-- `NavKey.Studio(modelId)` → `StudioScreen` (face tracking + Live2D rendering)
+- `NavKey.ModelSelect` → `ModelSelectScreen` (scans assets + external models)
+- `NavKey.Studio(modelId, isExternal, cachePath?, modelJsonName?)` → `StudioScreen` (face tracking + Live2D rendering, Asset/External 모델 모두 지원)
 
 ### Live2D Model Assets
 
@@ -79,12 +84,16 @@ The `face_landmarker.task` model file must be in `app/src/main/assets/`. FaceTra
 ## Code Placement Rules
 
 - New data classes → `domain/model/`
+- New repository interfaces → `domain/repository/`
 - New UseCases → `domain/usecase/`
+- Repository implementations → `data/repository/`
+- DI modules → `data/di/` (UseCases, Repositories) or `core:common/di/` (app-level singletons)
 - New screens → `feature:*` module (home, settings, or studio)
 - Reusable UI components → `core:ui`
 - Live2D logic → `core:live2d`
 - Face tracking logic → `core:tracking`
-- Storage/caching logic → `core:storage`
+- Storage/caching/DataStore logic → `core:storage`
+- Shared utilities (asset reading etc.) → `core:common`
 - Do not add business logic to the `app` module (navigation setup only)
 
 ## Package Naming
@@ -93,6 +102,7 @@ The `face_landmarker.task` model file must be in `app/src/main/assets/`. FaceTra
 |--------|---------|
 | domain | `org.comon.domain.*` |
 | data | `org.comon.data.*` |
+| core:common | `org.comon.common.*` |
 | core:tracking | `org.comon.tracking.*` |
 | core:live2d | `org.comon.live2d.*` |
 | core:ui | `org.comon.ui.*` |
@@ -106,12 +116,14 @@ The `face_landmarker.task` model file must be in `app/src/main/assets/`. FaceTra
 
 - **Min SDK**: 26, **Target/Compile SDK**: 36
 - **JVM Target**: 11 (all modules except `live2d:framework` which uses Java toolchain 17)
-- **Compose BOM**: 2026.01.00
-- **Kotlin**: 2.3.0
+- **Compose BOM**: 2026.01.01
+- **Kotlin**: 2.2.0
 - **DI**: Hilt with `@HiltAndroidApp`, `@AndroidEntryPoint`, `@HiltViewModel`
 - **Navigation**: Jetpack Navigation Compose with type-safe routes via kotlinx.serialization
-- **Camera**: CameraX with front camera; preview and analysis are decoupled (tracking works without visible preview)
+- **Camera**: CameraX 1.5.3 with front camera; preview and analysis are decoupled (tracking works without visible preview)
 - **Mirror mode**: Yaw, Roll, and EyeBallX are sign-inverted for front camera
+- **Firebase**: Firebase BOM 34.9.0, Firestore for user consent tracking
+- **DataStore**: Preferences DataStore for local persistence (theme, tracking settings, consent)
 - **`live2d:framework`**: Vendored SDK code — avoid modifying files in this module
 
 ## MVI Pattern

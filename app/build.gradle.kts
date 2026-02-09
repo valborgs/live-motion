@@ -90,4 +90,7 @@ dependencies {
     // Firebase
     implementation(platform(libs.firebase.bom))
     implementation("com.google.firebase:firebase-firestore")
+
+    // AdMob
+    implementation(libs.play.services.ads)
 }

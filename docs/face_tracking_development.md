@@ -41,6 +41,7 @@
 31. [이용약관 동의 기능](#31-이용약관-동의-기능-2026-02-06-업데이트)
 32. [트래킹 감도 설정 기능](#32-트래킹-감도-설정-기능-2026-02-07-업데이트)
 33. [다크/라이트 모드 테마 토글](#33-다크라이트-모드-테마-토글-2026-02-07-업데이트)
+34. [보상형 광고 프리로드 및 로딩 대기](#34-보상형-광고-프리로드-및-로딩-대기-2026-02-09-업데이트)
 
 ---
 
@@ -3447,3 +3448,118 @@ Kotlin 2.3.0의 metadata 버전(2.2.0)과 기존 Hilt 2.55의 `kotlin-metadata-j
 | `app/.../MainActivity.kt` | `ThemeLocalDataSource` 주입, `themeModeFlow` 수집, `LiveMotionTheme(darkTheme)` 전달 |
 | `build.gradle.kts` | Hilt 2.55 → 2.56.2 |
 | `gradle/libs.versions.toml` | Hilt 2.55 → 2.56.2 |
+
+## 34. 보상형 광고 프리로드 및 로딩 대기 (2026-02-09 업데이트)
+
+### 문제
+
+ModelSelectScreen에서 모델 선택 시 보상형 광고(RewardedAd)가 첫 번째 시도에서 표시되지 않고 바로 스튜디오 화면으로 이동하는 현상. 두 번째 시도부터는 정상적으로 광고가 표시됨.
+
+### 원인 분석
+
+`RewardedAd.load()`는 비동기 네트워크 요청으로, 기존 코드에서는 `composable<NavKey.ModelSelect>` 진입 시점에 `LaunchedEffect(Unit)`으로 광고 로딩을 시작했음. 사용자가 모델을 빠르게 선택하면 광고가 아직 로딩 중이라 `rewardedAd == null` 상태에서 광고 없이 스튜디오로 이동.
+
+두 번째 시도에서 동작하는 이유는 첫 번째 요청에서 AdMob SDK가 워밍업(초기화, 광고 크리에이티브 다운로드)되어 두 번째 로드 요청이 훨씬 빠르게 완료되기 때문.
+
+```
+[기존 흐름]
+ModelSelect 진입 → loadRewardedAd() 시작 (비동기)
+                → 사용자 모델 선택 → rewardedAd == null → 광고 스킵
+```
+
+### 해결 방법
+
+두 가지 전략을 결합:
+
+#### 1. 광고 상태를 NavHost 상위 레벨로 호이스팅 (조기 프리로드)
+
+광고 관련 상태(`rewardedAd`, `isAdLoading`, `loadRewardedAd`)를 `composable<NavKey.ModelSelect>` 내부에서 `MainContent()` 레벨(NavHost 상위)로 이동. 카메라 권한 획득 직후 `LaunchedEffect(Unit)`으로 광고 로딩을 즉시 시작하여, Intro → Title 화면을 거치는 동안 광고가 미리 로딩됨.
+
+```kotlin
+// MainContent() 내, NavHost 상위
+var rewardedAd by remember { mutableStateOf<RewardedAd?>(null) }
+var isAdLoading by remember { mutableStateOf(false) }
+
+val loadRewardedAd: () -> Unit = remember {
+    {
+        if (!isAdLoading) {
+            isAdLoading = true
+            RewardedAd.load(activity, AD_UNIT_ID, ...,
+                object : RewardedAdLoadCallback() {
+                    override fun onAdLoaded(ad: RewardedAd) {
+                        rewardedAd = ad; isAdLoading = false
+                    }
+                    override fun onAdFailedToLoad(error: LoadAdError) {
+                        rewardedAd = null; isAdLoading = false
+                    }
+                })
+        }
+    }
+}
+
+LaunchedEffect(Unit) { loadRewardedAd() }
+```
+
+#### 2. 모델 선택 시 광고 로딩 대기 메커니즘
+
+모델 선택 시 3가지 분기 처리:
+
+```kotlin
+onModelSelected = { modelSource ->
+    val ad = rewardedAd
+    when {
+        ad != null -> showAdAndNavigate(ad, modelSource)  // 즉시 표시
+        isAdLoading -> pendingModelSource = modelSource     // 대기
+        else -> navigator.navigateToStudio(modelSource)     // 실패 시 스킵
+    }
+}
+```
+
+대기 중인 경우 `LaunchedEffect(rewardedAd)`가 광고 로딩 완료를 감지하여 자동으로 광고를 표시하고, 5초 타임아웃 `LaunchedEffect(pendingModelSource)`가 광고 로딩이 너무 오래 걸리면 광고를 스킵.
+
+#### 3. AdLoadingDialog
+
+광고 대기 중 비취소 가능한 로딩 다이얼로그 표시. 기존 `DeletingProgressDialog` 패턴을 따름.
+
+```kotlin
+@Composable
+private fun AdLoadingDialog() {
+    Dialog(onDismissRequest = { }) {
+        Card(shape = RoundedCornerShape(16.dp)) {
+            Column(horizontalAlignment = CenterHorizontally) {
+                CircularProgressIndicator()
+                Text("잠시만 기다려주세요...")
+            }
+        }
+    }
+}
+```
+
+#### 4. 폴백 재시도
+
+`composable<NavKey.ModelSelect>` 진입 시 이전 로드가 실패했으면 재시도:
+
+```kotlin
+LaunchedEffect(Unit) {
+    if (rewardedAd == null && !isAdLoading) loadRewardedAd()
+}
+```
+
+### 동작 흐름
+
+```
+앱 시작 → MobileAds.initialize() (LiveMotionApp)
+카메라 권한 허용 → MainContent LaunchedEffect → loadRewardedAd() 호출
+Intro → Title → ModelSelect 진입 (이미 광고 로딩 완료)
+
+Case 1: 광고 준비됨 → 모델 선택 → 즉시 광고 표시 → 닫으면 스튜디오 이동 + 다음 광고 프리로드
+Case 2: 광고 로딩 중 → 모델 선택 → 로딩 다이얼로그 → 광고 완료 시 자동 표시
+Case 3: 5초 초과  → 광고 스킵 → 바로 스튜디오 이동
+Case 4: 로드 실패  → 바로 스튜디오 이동
+```
+
+### 관련 파일
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `app/.../MainActivity.kt` | 광고 상태를 NavHost 상위로 호이스팅, `pendingModelSource` 대기 메커니즘, 5초 타임아웃, `AdLoadingDialog` 추가 |
