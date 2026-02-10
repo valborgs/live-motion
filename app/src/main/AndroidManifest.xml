@@ -18,12 +18,6 @@
         android:localeConfig="@xml/locales_config"
         tools:targetApi="tiramisu"
         android:theme="@style/Theme.LiveMotion">
-        <!-- AdMob App ID (테스트용) -->
-        <!-- TODO: 출시 시 실제 AdMob App ID로 교체 필요 -->
-        <meta-data
-            android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-3940256099942544~3347511713"/>
-
         <activity
             android:name=".MainActivity"
             android:exported="true"
