@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- TitleScreen -->
+    <string name="title_studio">Studio</string>
+    <string name="title_settings">Settings</string>
+    <string name="title_background_description">タイトル背景</string>
+    <string name="title_terms_of_service">利用規約</string>
+
+    <!-- IntroScreen -->
+    <string name="intro_logo_description">Cubism Logo</string>
+
+    <!-- TermsOfServiceScreen -->
+    <string name="tos_title">利用規約</string>
+    <string name="tos_agree_button">同意して始める</string>
+    <string name="tos_back_button">戻る</string>
+    <string name="tos_content">本アプリケーションには、Live2D Inc.が開発したLive2D Cubism SDKが含まれており、当該SDKの著作権はLive2D Inc.が保有しています。本アプリケーションが事業の主要な要素として活用され、本アプリケーションまたは本アプリケーションを通じて制作されたコンテンツにより直接的または間接的に生じた年間売上が2000万円を超える場合、お客様はLive2D Inc.と出版ライセンス契約を締結し、必要なライセンス料を支払う義務があります。また、年間売上が2000万円を超えた場合、速やかにLive2D Inc.に通知しなければなりません。これらの義務に違反した場合、本アプリケーションに関連してLive2D Inc.が許諾した範囲を超えてLive2D Cubism SDKを利用しているものとみなされ、Live2D Inc.の知的財産権を侵害する行為とみなされる可能性があります。その結果、Live2D Inc.から法的請求を受ける可能性があります。\n\n＊本アプリケーションを事業の主要な要素として活用することには、VTuber配信事業の運営などを含みますが、これに限定されません。ただし、販売促進を目的とした動画コンテンツの配信は含まれません。</string>
+</resources>

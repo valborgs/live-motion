@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ModelSelectScreen -->
+    <string name="model_select_title">キャラクター選択</string>
+    <string name="model_select_delete_mode_exit">削除モード終了</string>
+    <string name="model_select_delete_selected">選択したモデルを削除</string>
+    <string name="model_select_import">モデルをインポート</string>
+    <string name="model_select_external_label">外部モデル</string>
+    <string name="model_select_selected_count">%d件選択中</string>
+
+    <!-- ModelSelectScreen - Dialogs -->
+    <string name="dialog_import_progress_title">モデルをインポート中…</string>
+    <string name="dialog_error_detail_title">エラー詳細</string>
+    <string name="dialog_delete_title">モデル削除</string>
+    <string name="dialog_delete_message">%d件のモデルを削除しますか？</string>
+    <string name="dialog_deleting">削除中…</string>
+
+    <!-- ModelSelectScreen - Snackbar -->
+    <string name="snackbar_model_load_failed">モデルの読み込みに失敗しました</string>
+    <string name="snackbar_error_occurred">エラーが発生しました</string>
+    <string name="snackbar_action_detail">詳細</string>
+
+    <!-- StudioScreen -->
+    <string name="studio_model_loading">モデル読み込み中…</string>
+    <string name="studio_calibrating">顔のキャリブレーション中です…\n5秒間正面を見つめてください。</string>
+    <string name="studio_back">戻る</string>
+    <string name="studio_expression">表情</string>
+    <string name="studio_motion">モーション</string>
+    <string name="studio_gpu">GPU</string>
+    <string name="studio_cpu">CPU</string>
+    <string name="studio_gesture">拡大/移動</string>
+    <string name="studio_reset">リセット</string>
+    <string name="studio_preview">プレビュー</string>
+    <string name="studio_snackbar_tracking_error">トラッキングエラーが発生しました</string>
+
+    <!-- StudioScreen - Dialogs -->
+    <string name="dialog_expression_title">表情リスト</string>
+    <string name="dialog_motion_title">モーションリスト</string>
+    <string name="dialog_reset">初期化</string>
+    <string name="dialog_tracking_error_title">トラッキングエラー詳細</string>
+
+    <!-- Common -->
+    <string name="button_confirm">確認</string>
+    <string name="button_cancel">キャンセル</string>
+    <string name="button_delete">削除</string>
+    <string name="button_close">閉じる</string>
+</resources>

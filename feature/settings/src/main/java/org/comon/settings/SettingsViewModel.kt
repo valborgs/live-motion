@@ -8,6 +8,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.os.LocaleListCompat
+import org.comon.domain.model.AppLanguage
 import org.comon.domain.model.ThemeMode
 import org.comon.domain.model.TrackingSensitivity
 import org.comon.storage.ThemeLocalDataSource
@@ -25,13 +28,19 @@ class SettingsViewModel @Inject constructor(
         val pitch: Float = 1.0f,
         val roll: Float = 1.0f,
         val smoothing: Float = 0.4f,
-        val themeMode: ThemeMode = ThemeMode.SYSTEM
+        val themeMode: ThemeMode = ThemeMode.SYSTEM,
+        val appLanguage: AppLanguage = AppLanguage.SYSTEM
     )
 
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
     init {
+        // 현재 앱 언어 읽기
+        val currentLocales = AppCompatDelegate.getApplicationLocales()
+        val currentTag = if (currentLocales.isEmpty) "" else currentLocales.toLanguageTags()
+        _uiState.update { it.copy(appLanguage = AppLanguage.fromLocaleTag(currentTag)) }
+
         viewModelScope.launch {
             trackingSettingsLocalDataSource.sensitivityFlow.collect { sensitivity ->
                 _uiState.update {
@@ -58,6 +67,7 @@ class SettingsViewModel @Inject constructor(
             is SettingsUiIntent.UpdateRoll -> updateSensitivity(roll = intent.value)
             is SettingsUiIntent.UpdateSmoothing -> updateSensitivity(smoothing = intent.value)
             is SettingsUiIntent.UpdateThemeMode -> updateThemeMode(intent.mode)
+            is SettingsUiIntent.UpdateLanguage -> updateLanguage(intent.language)
             is SettingsUiIntent.ResetToDefault -> resetToDefault()
         }
     }
@@ -80,6 +90,16 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             themeLocalDataSource.saveThemeMode(mode)
         }
+    }
+
+    private fun updateLanguage(language: AppLanguage) {
+        _uiState.update { it.copy(appLanguage = language) }
+        val localeList = if (language == AppLanguage.SYSTEM) {
+            LocaleListCompat.getEmptyLocaleList()
+        } else {
+            LocaleListCompat.forLanguageTags(language.localeTag)
+        }
+        AppCompatDelegate.setApplicationLocales(localeList)
     }
 
     private fun resetToDefault() {

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- SettingsScreen -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_back">Kembali</string>
+
+    <!-- Theme -->
+    <string name="settings_theme">Tema</string>
+    <string name="settings_theme_system">Sistem</string>
+    <string name="settings_theme_light">Terang</string>
+    <string name="settings_theme_dark">Gelap</string>
+
+    <!-- Tracking Sensitivity -->
+    <string name="settings_tracking_sensitivity">Sensitivitas Pelacakan</string>
+    <string name="settings_yaw">Rotasi Kiri/Kanan (Yaw)</string>
+    <string name="settings_pitch">Rotasi Atas/Bawah (Pitch)</string>
+    <string name="settings_roll">Kemiringan (Roll)</string>
+    <string name="settings_sensitivity_format">%.1fx</string>
+
+    <!-- Smoothing -->
+    <string name="settings_smoothing">Kekuatan Smoothing</string>
+    <string name="settings_smoothing_label">EMA Alpha</string>
+    <string name="settings_smoothing_smooth">Halus</string>
+    <string name="settings_smoothing_responsive">Responsif</string>
+
+    <string name="settings_reset_to_default">Reset</string>
+
+    <!-- Language -->
+    <string name="settings_language">Bahasa</string>
+    <string name="settings_language_system">Default Sistem</string>
+    <string name="settings_language_dialog_title">Pilih Bahasa</string>
+</resources>

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ModelSelectScreen -->
+    <string name="model_select_title">Select Character</string>
+    <string name="model_select_delete_mode_exit">Exit Delete Mode</string>
+    <string name="model_select_delete_selected">Delete Selected Models</string>
+    <string name="model_select_import">Import Model</string>
+    <string name="model_select_external_label">External Model</string>
+    <string name="model_select_selected_count">%d selected</string>
+
+    <!-- ModelSelectScreen - Dialogs -->
+    <string name="dialog_import_progress_title">Importing model…</string>
+    <string name="dialog_error_detail_title">Error Details</string>
+    <string name="dialog_delete_title">Delete Models</string>
+    <string name="dialog_delete_message">Delete %d model(s)?</string>
+    <string name="dialog_deleting">Deleting…</string>
+
+    <!-- ModelSelectScreen - Snackbar -->
+    <string name="snackbar_model_load_failed">Failed to load model</string>
+    <string name="snackbar_error_occurred">An error occurred</string>
+    <string name="snackbar_action_detail">Details</string>
+
+    <!-- StudioScreen -->
+    <string name="studio_model_loading">Loading model…</string>
+    <string name="studio_calibrating">Calibrating face…\nPlease look straight ahead for 5 seconds.</string>
+    <string name="studio_back">Back</string>
+    <string name="studio_expression">Expression</string>
+    <string name="studio_motion">Motion</string>
+    <string name="studio_gpu">GPU</string>
+    <string name="studio_cpu">CPU</string>
+    <string name="studio_gesture">Zoom/Move</string>
+    <string name="studio_reset">Reset</string>
+    <string name="studio_preview">Preview</string>
+    <string name="studio_snackbar_tracking_error">A tracking error occurred</string>
+
+    <!-- StudioScreen - Dialogs -->
+    <string name="dialog_expression_title">Expressions</string>
+    <string name="dialog_motion_title">Motions</string>
+    <string name="dialog_reset">Reset</string>
+    <string name="dialog_tracking_error_title">Tracking Error Details</string>
+
+    <!-- Common -->
+    <string name="button_confirm">OK</string>
+    <string name="button_cancel">Cancel</string>
+    <string name="button_delete">Delete</string>
+    <string name="button_close">Close</string>
+</resources>

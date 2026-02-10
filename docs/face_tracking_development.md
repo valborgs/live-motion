@@ -42,6 +42,7 @@
 32. [트래킹 감도 설정 기능](#32-트래킹-감도-설정-기능-2026-02-07-업데이트)
 33. [다크/라이트 모드 테마 토글](#33-다크라이트-모드-테마-토글-2026-02-07-업데이트)
 34. [보상형 광고 프리로드 및 로딩 대기](#34-보상형-광고-프리로드-및-로딩-대기-2026-02-09-업데이트)
+35. [앱 내 언어 변경 기능](#35-앱-내-언어-변경-기능-2026-02-10-업데이트)
 
 ---
 
@@ -3563,3 +3564,108 @@ Case 4: 로드 실패  → 바로 스튜디오 이동
 | 파일 | 변경 내용 |
 |------|----------|
 | `app/.../MainActivity.kt` | 광고 상태를 NavHost 상위로 호이스팅, `pendingModelSource` 대기 메커니즘, 5초 타임아웃, `AdLoadingDialog` 추가 |
+
+## 35. 앱 내 언어 변경 기능 (2026-02-10 업데이트)
+
+### 배경
+
+6개 locale(ko, en, ja, zh-CN, zh-TW, in)의 문자열 리소스가 이미 존재하지만 시스템 언어에만 의존하고 있어, 사용자가 앱 내에서 직접 언어를 변경할 수 없었음.
+
+### 접근 방식
+
+`AppCompatDelegate.setApplicationLocales()` API를 사용:
+- API 33+: 시스템 per-app language 설정에 위임 (시스템 설정 앱에서도 언어 변경 가능)
+- API 33 미만: AppCompat이 `SharedPreferences`에 locale을 저장하고 Activity를 recreate하여 자체 관리
+- **별도 DataStore 불필요** — AppCompat이 내부적으로 persistence 처리
+
+### AppCompat 마이그레이션
+
+`AppCompatDelegate` API 사용을 위해 다음 변경이 필요:
+
+1. **`MainActivity`를 `ComponentActivity` → `AppCompatActivity`로 변경**
+   - `AppCompatActivity`는 `ComponentActivity`의 하위 클래스(`ComponentActivity → FragmentActivity → AppCompatActivity`)이므로 Compose, `setContent`, `enableEdgeToEdge` 등 기존 API가 모두 동작
+   - API 33 미만에서 AppCompat의 locale 관리는 `AppCompatActivity.attachBaseContext()`에서 context를 올바른 locale로 래핑하는 방식으로 동작하므로 필수
+
+2. **테마 parent 변경**: `android:Theme.Material.Light.NoActionBar` → `Theme.AppCompat.Light.NoActionBar`
+   - `AppCompatActivity`는 AppCompat 테마를 요구
+
+3. **`locales_config.xml` 추가**: API 33+ 시스템 설정 앱이 읽는 locale 목록 선언
+   - `android:localeConfig` 속성에 `tools:targetApi="tiramisu"` 추가 (API 33 미만에서는 무시됨)
+
+### 구현 구조
+
+테마 변경 패턴(`enum → ViewModel → UI`)을 동일하게 따르되, 저장소 계층은 AppCompat에 위임.
+
+#### AppLanguage enum (`domain`)
+
+```kotlin
+enum class AppLanguage(val localeTag: String, val displayName: String) {
+    SYSTEM("", "System"),
+    KOREAN("ko", "한국어"),
+    ENGLISH("en", "English"),
+    JAPANESE("ja", "日本語"),
+    CHINESE_SIMPLIFIED("zh-CN", "简体中文"),
+    CHINESE_TRADITIONAL("zh-TW", "繁體中文"),
+    INDONESIAN("in", "Bahasa Indonesia");
+
+    companion object {
+        fun fromLocaleTag(tag: String): AppLanguage =
+            entries.firstOrNull { it.localeTag.equals(tag, ignoreCase = true) } ?: SYSTEM
+    }
+}
+```
+
+#### ViewModel 언어 관리 (`feature:settings`)
+
+```kotlin
+// init에서 현재 언어 읽기
+val currentLocales = AppCompatDelegate.getApplicationLocales()
+val currentTag = if (currentLocales.isEmpty) "" else currentLocales.toLanguageTags()
+_uiState.update { it.copy(appLanguage = AppLanguage.fromLocaleTag(currentTag)) }
+
+// 언어 변경
+private fun updateLanguage(language: AppLanguage) {
+    _uiState.update { it.copy(appLanguage = language) }
+    val localeList = if (language == AppLanguage.SYSTEM) {
+        LocaleListCompat.getEmptyLocaleList()
+    } else {
+        LocaleListCompat.forLanguageTags(language.localeTag)
+    }
+    AppCompatDelegate.setApplicationLocales(localeList)
+}
+```
+
+#### UI 구성 (`SettingsScreen`)
+
+테마 섹션과 트래킹 감도 섹션 사이에 언어 섹션 추가:
+- 현재 선택 언어를 표시하는 `OutlinedButton`
+- 클릭 시 `LanguageSelectDialog` 표시 (Dialog > Card > LazyColumn, RadioButton으로 현재 선택 표시)
+- 설정 항목 증가에 따라 `Column`에 `verticalScroll` 추가
+
+### 동작 흐름
+
+```
+Settings 화면 → 언어 버튼 (현재 언어 표시)
+  → 클릭 → LanguageSelectDialog (7개 옵션: 시스템 + 6개 언어)
+    → 언어 선택 → AppCompatDelegate.setApplicationLocales() 호출
+      → API 33+: 시스템 per-app language 설정 변경
+      → API < 33: AppCompat이 locale 저장 + Activity recreate
+    → 앱 재시작 후에도 선택 유지 (AppCompat 내부 persistence)
+```
+
+### 관련 파일
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `domain/.../model/AppLanguage.kt` | 신규 — 지원 언어 enum (SYSTEM + 6개 locale) |
+| `app/.../res/xml/locales_config.xml` | 신규 — API 33+ per-app language locale 목록 |
+| `app/.../AndroidManifest.xml` | `localeConfig` 속성 추가 |
+| `app/.../res/values/themes.xml` | 테마 parent를 `Theme.AppCompat.Light.NoActionBar`로 변경 |
+| `app/build.gradle.kts` | `androidx-appcompat` 의존성 추가 |
+| `app/.../MainActivity.kt` | `ComponentActivity` → `AppCompatActivity` 변경 |
+| `feature/settings/build.gradle.kts` | `androidx-appcompat` 의존성 추가 |
+| `feature/settings/.../SettingsUiIntent.kt` | `UpdateLanguage` intent 추가 |
+| `feature/settings/.../SettingsViewModel.kt` | `appLanguage` 상태, `updateLanguage()` 메서드 추가 |
+| `feature/settings/.../SettingsScreen.kt` | 언어 섹션 UI 추가, `verticalScroll` 추가 |
+| `feature/settings/.../components/LanguageSelectDialog.kt` | 신규 — 언어 선택 다이얼로그 |
+| `feature/settings/src/main/res/values*/strings.xml` (6개) | `settings_language`, `settings_language_system`, `settings_language_dialog_title` 추가 |

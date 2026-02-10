@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ModelSelectScreen -->
+    <string name="model_select_title">選擇角色</string>
+    <string name="model_select_delete_mode_exit">退出刪除模式</string>
+    <string name="model_select_delete_selected">刪除所選模型</string>
+    <string name="model_select_import">匯入模型</string>
+    <string name="model_select_external_label">外部模型</string>
+    <string name="model_select_selected_count">已選擇%d個</string>
+
+    <!-- ModelSelectScreen - Dialogs -->
+    <string name="dialog_import_progress_title">正在匯入模型…</string>
+    <string name="dialog_error_detail_title">錯誤詳情</string>
+    <string name="dialog_delete_title">刪除模型</string>
+    <string name="dialog_delete_message">確定刪除%d個模型嗎？</string>
+    <string name="dialog_deleting">正在刪除…</string>
+
+    <!-- ModelSelectScreen - Snackbar -->
+    <string name="snackbar_model_load_failed">模型載入失敗</string>
+    <string name="snackbar_error_occurred">發生錯誤</string>
+    <string name="snackbar_action_detail">詳情</string>
+
+    <!-- StudioScreen -->
+    <string name="studio_model_loading">正在載入模型…</string>
+    <string name="studio_calibrating">正在校準臉部…\n請正視前方保持5秒。</string>
+    <string name="studio_back">返回</string>
+    <string name="studio_expression">表情</string>
+    <string name="studio_motion">動作</string>
+    <string name="studio_gpu">GPU</string>
+    <string name="studio_cpu">CPU</string>
+    <string name="studio_gesture">縮放/移動</string>
+    <string name="studio_reset">重設</string>
+    <string name="studio_preview">預覽</string>
+    <string name="studio_snackbar_tracking_error">發生追蹤錯誤</string>
+
+    <!-- StudioScreen - Dialogs -->
+    <string name="dialog_expression_title">表情列表</string>
+    <string name="dialog_motion_title">動作列表</string>
+    <string name="dialog_reset">重設</string>
+    <string name="dialog_tracking_error_title">追蹤錯誤詳情</string>
+
+    <!-- Common -->
+    <string name="button_confirm">確認</string>
+    <string name="button_cancel">取消</string>
+    <string name="button_delete">刪除</string>
+    <string name="button_close">關閉</string>
+</resources>

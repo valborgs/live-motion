@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- SettingsScreen -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_back">戻る</string>
+
+    <!-- Theme -->
+    <string name="settings_theme">テーマ</string>
+    <string name="settings_theme_system">システム</string>
+    <string name="settings_theme_light">ライト</string>
+    <string name="settings_theme_dark">ダーク</string>
+
+    <!-- Tracking Sensitivity -->
+    <string name="settings_tracking_sensitivity">トラッキング感度</string>
+    <string name="settings_yaw">左右回転 (Yaw)</string>
+    <string name="settings_pitch">上下回転 (Pitch)</string>
+    <string name="settings_roll">傾き (Roll)</string>
+    <string name="settings_sensitivity_format">%.1fx</string>
+
+    <!-- Smoothing -->
+    <string name="settings_smoothing">スムージング強度</string>
+    <string name="settings_smoothing_label">EMAアルファ</string>
+    <string name="settings_smoothing_smooth">滑らか</string>
+    <string name="settings_smoothing_responsive">高応答</string>
+
+    <string name="settings_reset_to_default">初期化</string>
+
+    <!-- Language -->
+    <string name="settings_language">言語</string>
+    <string name="settings_language_system">システムデフォルト</string>
+    <string name="settings_language_dialog_title">言語を選択</string>
+</resources>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- TitleScreen -->
+    <string name="title_studio">Studio</string>
+    <string name="title_settings">Settings</string>
+    <string name="title_background_description">標題背景</string>
+    <string name="title_terms_of_service">使用條款</string>
+
+    <!-- IntroScreen -->
+    <string name="intro_logo_description">Cubism Logo</string>
+
+    <!-- TermsOfServiceScreen -->
+    <string name="tos_title">使用條款</string>
+    <string name="tos_agree_button">同意並開始</string>
+    <string name="tos_back_button">返回</string>
+    <string name="tos_content">本應用程式包含由Live2D Inc.開發的Live2D Cubism SDK，該SDK的著作權歸Live2D Inc.所有。如果本應用程式被用作您業務的主要組成部分，且透過本應用程式或透過本應用程式製作的內容直接或間接產生的年收入超過2000萬日圓，您有義務與Live2D Inc.簽訂出版授權合約並支付所需的授權費用。此外，當年收入超過2000萬日圓時，您必須立即通知Live2D Inc.。違反上述義務將被視為超出Live2D Inc.就本應用程式所許可的範圍使用Live2D Cubism SDK，並可能被視為侵犯Live2D Inc.的智慧財產權。因此，您可能面臨來自Live2D Inc.的法律索賠。\n\n＊將本應用程式用作業務的主要組成部分包括但不限於經營VTuber直播業務。但不包括以促銷為目的的影片內容直播。</string>
+</resources>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- TitleScreen -->
+    <string name="title_studio">Studio</string>
+    <string name="title_settings">Settings</string>
+    <string name="title_background_description">Title Background</string>
+    <string name="title_terms_of_service">Terms of Service</string>
+
+    <!-- IntroScreen -->
+    <string name="intro_logo_description">Cubism Logo</string>
+
+    <!-- TermsOfServiceScreen -->
+    <string name="tos_title">Terms of Service</string>
+    <string name="tos_agree_button">Agree and Start</string>
+    <string name="tos_back_button">Go Back</string>
+    <string name="tos_content">This application contains the Live2D Cubism SDK developed by Live2D Inc., and the copyright of the SDK is owned by Live2D Inc. If this application is used as a primary element of your business and the annual revenue generated directly or indirectly by this application or content created through it exceeds 20 million yen, you are obligated to enter into a publishing license agreement with Live2D Inc. and pay the required license fees. Furthermore, if annual revenue exceeds 20 million yen, you must promptly notify Live2D Inc. Violation of these obligations shall be deemed as utilizing the Live2D Cubism SDK beyond the scope permitted by Live2D Inc. in connection with this application, and may be regarded as an infringement of Live2D Inc.\'s intellectual property rights. Consequently, you may face legal claims from Live2D Inc.\n\n*Using this application as a primary element of business includes, but is not limited to, operating a VTuber streaming business. However, streaming video content for sales promotion purposes is not included.</string>
+</resources>

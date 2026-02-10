@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ModelSelectScreen -->
+    <string name="model_select_title">Pilih Karakter</string>
+    <string name="model_select_delete_mode_exit">Keluar Mode Hapus</string>
+    <string name="model_select_delete_selected">Hapus Model Terpilih</string>
+    <string name="model_select_import">Impor Model</string>
+    <string name="model_select_external_label">Model Eksternal</string>
+    <string name="model_select_selected_count">%d dipilih</string>
+
+    <!-- ModelSelectScreen - Dialogs -->
+    <string name="dialog_import_progress_title">Mengimpor model…</string>
+    <string name="dialog_error_detail_title">Detail Error</string>
+    <string name="dialog_delete_title">Hapus Model</string>
+    <string name="dialog_delete_message">Hapus %d model?</string>
+    <string name="dialog_deleting">Menghapus…</string>
+
+    <!-- ModelSelectScreen - Snackbar -->
+    <string name="snackbar_model_load_failed">Gagal memuat model</string>
+    <string name="snackbar_error_occurred">Terjadi kesalahan</string>
+    <string name="snackbar_action_detail">Detail</string>
+
+    <!-- StudioScreen -->
+    <string name="studio_model_loading">Memuat model…</string>
+    <string name="studio_calibrating">Mengkalibrasi wajah…\nSilakan tatap lurus ke depan selama 5 detik.</string>
+    <string name="studio_back">Kembali</string>
+    <string name="studio_expression">Ekspresi</string>
+    <string name="studio_motion">Gerakan</string>
+    <string name="studio_gpu">GPU</string>
+    <string name="studio_cpu">CPU</string>
+    <string name="studio_gesture">Zoom/Geser</string>
+    <string name="studio_reset">Reset</string>
+    <string name="studio_preview">Pratinjau</string>
+    <string name="studio_snackbar_tracking_error">Terjadi kesalahan pelacakan</string>
+
+    <!-- StudioScreen - Dialogs -->
+    <string name="dialog_expression_title">Daftar Ekspresi</string>
+    <string name="dialog_motion_title">Daftar Gerakan</string>
+    <string name="dialog_reset">Reset</string>
+    <string name="dialog_tracking_error_title">Detail Error Pelacakan</string>
+
+    <!-- Common -->
+    <string name="button_confirm">OK</string>
+    <string name="button_cancel">Batal</string>
+    <string name="button_delete">Hapus</string>
+    <string name="button_close">Tutup</string>
+</resources>

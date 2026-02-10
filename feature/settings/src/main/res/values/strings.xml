@@ -24,4 +24,9 @@
     <string name="settings_smoothing_responsive">빠른 반응</string>
 
     <string name="settings_reset_to_default">초기화</string>
+
+    <!-- Language -->
+    <string name="settings_language">언어</string>
+    <string name="settings_language_system">시스템 기본</string>
+    <string name="settings_language_dialog_title">언어 선택</string>
 </resources>

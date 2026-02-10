@@ -1,5 +1,7 @@
 package org.comon.settings
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,6 +26,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -31,7 +36,9 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import org.comon.domain.model.AppLanguage
 import org.comon.domain.model.ThemeMode
+import org.comon.settings.components.LanguageSelectDialog
 import org.comon.ui.theme.LiveMotionTheme
 
 @Composable
@@ -74,6 +81,7 @@ private fun SettingsScreenContent(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
         ) {
             // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -93,6 +101,42 @@ private fun SettingsScreenContent(
                 selected = uiState.themeMode,
                 onSelect = { onIntent(SettingsUiIntent.UpdateThemeMode(it)) }
             )
+
+            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            // 언어 설정
+            // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = stringResource(R.string.settings_language),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            var showLanguageDialog by remember { mutableStateOf(false) }
+
+            val currentLanguageLabel = if (uiState.appLanguage == AppLanguage.SYSTEM) {
+                stringResource(R.string.settings_language_system)
+            } else {
+                uiState.appLanguage.displayName
+            }
+
+            OutlinedButton(
+                onClick = { showLanguageDialog = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(currentLanguageLabel)
+            }
+
+            if (showLanguageDialog) {
+                LanguageSelectDialog(
+                    currentLanguage = uiState.appLanguage,
+                    onLanguageSelected = { onIntent(SettingsUiIntent.UpdateLanguage(it)) },
+                    onDismiss = { showLanguageDialog = false }
+                )
+            }
 
             // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
             // 트래킹 감도

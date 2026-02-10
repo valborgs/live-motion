@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- SettingsScreen -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_back">Back</string>
+
+    <!-- Theme -->
+    <string name="settings_theme">Theme</string>
+    <string name="settings_theme_system">System</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+
+    <!-- Tracking Sensitivity -->
+    <string name="settings_tracking_sensitivity">Tracking Sensitivity</string>
+    <string name="settings_yaw">Yaw</string>
+    <string name="settings_pitch">Pitch</string>
+    <string name="settings_roll">Roll</string>
+    <string name="settings_sensitivity_format">%.1fx</string>
+
+    <!-- Smoothing -->
+    <string name="settings_smoothing">Smoothing</string>
+    <string name="settings_smoothing_label">EMA Alpha</string>
+    <string name="settings_smoothing_smooth">Smooth</string>
+    <string name="settings_smoothing_responsive">Responsive</string>
+
+    <string name="settings_reset_to_default">Reset</string>
+
+    <!-- Language -->
+    <string name="settings_language">Language</string>
+    <string name="settings_language_system">System Default</string>
+    <string name="settings_language_dialog_title">Select Language</string>
+</resources>

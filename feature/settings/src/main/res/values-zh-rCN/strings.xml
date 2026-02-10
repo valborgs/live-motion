@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- SettingsScreen -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_back">返回</string>
+
+    <!-- Theme -->
+    <string name="settings_theme">主题</string>
+    <string name="settings_theme_system">跟随系统</string>
+    <string name="settings_theme_light">浅色</string>
+    <string name="settings_theme_dark">深色</string>
+
+    <!-- Tracking Sensitivity -->
+    <string name="settings_tracking_sensitivity">追踪灵敏度</string>
+    <string name="settings_yaw">左右旋转 (Yaw)</string>
+    <string name="settings_pitch">上下旋转 (Pitch)</string>
+    <string name="settings_roll">倾斜 (Roll)</string>
+    <string name="settings_sensitivity_format">%.1fx</string>
+
+    <!-- Smoothing -->
+    <string name="settings_smoothing">平滑强度</string>
+    <string name="settings_smoothing_label">EMA Alpha</string>
+    <string name="settings_smoothing_smooth">平滑</string>
+    <string name="settings_smoothing_responsive">快速响应</string>
+
+    <string name="settings_reset_to_default">重置</string>
+
+    <!-- Language -->
+    <string name="settings_language">语言</string>
+    <string name="settings_language_system">跟随系统</string>
+    <string name="settings_language_dialog_title">选择语言</string>
+</resources>
