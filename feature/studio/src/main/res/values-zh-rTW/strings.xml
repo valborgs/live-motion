@@ -8,6 +8,12 @@
     <string name="model_select_external_label">外部模型</string>
     <string name="model_select_selected_count">已選擇%d個</string>
 
+    <!-- PrepareScreen -->
+    <string name="prepare_title">工作室準備</string>
+    <string name="prepare_tab_character">角色</string>
+    <string name="prepare_tab_background">背景</string>
+    <string name="background_select_coming_soon">即將推出</string>
+
     <!-- ModelSelectScreen - Dialogs -->
     <string name="dialog_import_progress_title">正在匯入模型…</string>
     <string name="dialog_error_detail_title">錯誤詳情</string>

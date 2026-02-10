@@ -8,6 +8,12 @@
     <string name="model_select_external_label">외부 모델</string>
     <string name="model_select_selected_count">%d개 선택됨</string>
 
+    <!-- PrepareScreen -->
+    <string name="prepare_title">스튜디오 준비</string>
+    <string name="prepare_tab_character">캐릭터</string>
+    <string name="prepare_tab_background">배경</string>
+    <string name="background_select_coming_soon">준비 중입니다</string>
+
     <!-- ModelSelectScreen - Dialogs -->
     <string name="dialog_import_progress_title">모델 가져오는 중...</string>
     <string name="dialog_error_detail_title">에러 상세</string>

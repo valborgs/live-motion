@@ -43,6 +43,7 @@
 33. [다크/라이트 모드 테마 토글](#33-다크라이트-모드-테마-토글-2026-02-07-업데이트)
 34. [보상형 광고 프리로드 및 로딩 대기](#34-보상형-광고-프리로드-및-로딩-대기-2026-02-09-업데이트)
 35. [앱 내 언어 변경 기능](#35-앱-내-언어-변경-기능-2026-02-10-업데이트)
+36. [PrepareScreen 추가 (캐릭터/배경 탭)](#36-preparescreen-추가-캐릭터배경-탭-2026-02-10-업데이트)
 
 ---
 
@@ -3669,3 +3670,171 @@ Settings 화면 → 언어 버튼 (현재 언어 표시)
 | `feature/settings/.../SettingsScreen.kt` | 언어 섹션 UI 추가, `verticalScroll` 추가 |
 | `feature/settings/.../components/LanguageSelectDialog.kt` | 신규 — 언어 선택 다이얼로그 |
 | `feature/settings/src/main/res/values*/strings.xml` (6개) | `settings_language`, `settings_language_system`, `settings_language_dialog_title` 추가 |
+
+---
+
+## 36. PrepareScreen 추가 (캐릭터/배경 탭) (2026-02-10 업데이트)
+
+### 배경
+
+기존 네비게이션 흐름은 TitleScreen → ModelSelectScreen → StudioScreen 이었으나, 향후 배경 선택 기능을 추가하기 위해 ModelSelectScreen을 감싸는 PrepareScreen을 도입. 캐릭터 선택(기존)과 배경 선택(placeholder)을 TabRow로 전환하는 구조.
+
+### 구현 방식
+
+#### 1. ModelSelectScreen 리팩터링 — ModelSelectContent 분리
+
+기존 `ModelSelectScreenContent`(private, Scaffold 포함)에서 본문 영역만 분리:
+
+- **`ModelSelectContent`** (internal) — Scaffold 없이 그리드 + 다이얼로그만 포함. `Modifier` 파라미터를 받아 padding 처리. PrepareScreen에서 탭 콘텐츠로 재사용.
+- **`ModelSelectScreenContent`** (private) — Preview용으로 유지. `ModelSelectContent`를 Scaffold로 감싸서 호출.
+- **`ModelSelectScreen`** (public) — standalone 사용 가능하도록 그대로 유지.
+
+```kotlin
+// 본문 영역만 분리 (Scaffold 없이)
+@Composable
+internal fun ModelSelectContent(
+    modifier: Modifier = Modifier,
+    uiState: ModelSelectViewModel.UiState,
+    snackbarState: SnackbarStateHolder,
+    onModelSelected: (ModelSource) -> Unit,
+    onImportClick: () -> Unit,
+    onIntent: (ModelSelectUiIntent) -> Unit,
+) { /* 그리드 + Import/Error/Deleting 다이얼로그 */ }
+```
+
+삭제 확인 다이얼로그(`DeleteConfirmDialog`)는 TopBar의 삭제 버튼과 같은 레벨에서 관리해야 하므로, `ModelSelectContent`가 아닌 Scaffold를 소유하는 상위 컴포저블(`PrepareScreenContent`, `ModelSelectScreenContent`)에 배치.
+
+#### 2. PrepareScreen 신규 생성
+
+**`PrepareScreen`** (public) — ViewModel 연결 전용:
+- `ModelSelectViewModel`을 `hiltViewModel()`로 주입
+- 탭 state 관리 (`mutableIntStateOf(0)`)
+- SAF 폴더 선택기 런처, snackbar, uiEffect 수집
+- errorMessage (savedStateHandle에서 전달) 처리
+
+**`PrepareScreenContent`** (private) — 순수 UI:
+- `Scaffold` 소유
+- **topBar**: 삭제 모드(탭0)일 때 → 삭제 모드 TopAppBar, 아닐 때 → TopAppBar("스튜디오 준비") + `TabRow` (캐릭터/배경)
+- **FAB**: 탭0 + 일반 모드일 때만 Import FAB 표시
+- **snackbarHost**: 공유 SnackbarHost
+- **삭제 확인 다이얼로그**: TopBar 삭제 버튼과 같은 레벨에서 관리
+
+```kotlin
+@Composable
+fun PrepareScreen(
+    onModelSelected: (ModelSource) -> Unit,
+    errorMessage: String? = null,
+    onErrorConsumed: () -> Unit = {},
+    viewModel: ModelSelectViewModel = hiltViewModel()
+) { /* ViewModel 연결, PrepareScreenContent 호출 */ }
+
+@Composable
+private fun PrepareScreenContent(
+    uiState: ModelSelectViewModel.UiState,
+    snackbarState: SnackbarStateHolder,
+    selectedTabIndex: Int,
+    onTabSelected: (Int) -> Unit,
+    onModelSelected: (ModelSource) -> Unit,
+    onImportClick: () -> Unit,
+    onIntent: (ModelSelectUiIntent) -> Unit,
+) {
+    Scaffold(
+        topBar = {
+            if (uiState.isDeleteMode && selectedTabIndex == 0) {
+                // 삭제 모드 TopAppBar
+            } else {
+                Column {
+                    TopAppBar(title = { Text("스튜디오 준비") })
+                    TabRow(selectedTabIndex) { /* 캐릭터, 배경 */ }
+                }
+            }
+        },
+    ) { paddingValues ->
+        when (selectedTabIndex) {
+            0 -> ModelSelectContent(modifier = Modifier.padding(paddingValues), ...)
+            1 -> BackgroundSelectContent(modifier = Modifier.padding(paddingValues))
+        }
+    }
+}
+```
+
+#### 3. BackgroundSelectContent placeholder
+
+```kotlin
+@Composable
+internal fun BackgroundSelectContent(modifier: Modifier = Modifier) {
+    Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(text = stringResource(R.string.background_select_coming_soon))
+    }
+}
+```
+
+#### 4. NavKey 및 Navigator 변경
+
+```kotlin
+// NavKey.kt
+data object Prepare : NavKey  // 기존 ModelSelect → Prepare
+
+// Navigator.kt
+fun navigateToPrepare()  // 기존 navigateToModelSelect() → navigateToPrepare()
+
+// AppNavigatorImpl.kt
+override fun navigateToPrepare() {
+    navController.navigate(NavKey.Prepare)
+}
+```
+
+#### 5. MainActivity NavHost 변경
+
+```kotlin
+composable<NavKey.Prepare> { backStackEntry ->
+    val errorMessage by backStackEntry.savedStateHandle
+        .getStateFlow<String?>("model_load_error", null)
+        .collectAsState()
+
+    PrepareScreen(
+        onModelSelected = { modelSource -> navigator.navigateToStudio(modelSource) },
+        errorMessage = errorMessage,
+        onErrorConsumed = { backStackEntry.savedStateHandle.remove<String>("model_load_error") }
+    )
+}
+```
+
+### 네비게이션 흐름 (변경 후)
+
+```
+TitleScreen
+  └→ onStudioClick → navigator.navigateToPrepare()
+      └→ PrepareScreen
+          ├─ [탭: 캐릭터] → ModelSelectContent (그리드+FAB+다이얼로그)
+          │   └→ onModelSelected → navigator.navigateToStudio(modelSource)
+          │       └→ StudioScreen
+          └─ [탭: 배경] → BackgroundSelectContent (placeholder)
+```
+
+### 문자열 리소스 (6개 locale)
+
+| 키 | ko | en | ja | zh-CN | zh-TW | in |
+|----|----|----|----|----|----|----|
+| `prepare_title` | 스튜디오 준비 | Studio Prep | スタジオ準備 | 工作室准备 | 工作室準備 | Persiapan Studio |
+| `prepare_tab_character` | 캐릭터 | Character | キャラクター | 角色 | 角色 | Karakter |
+| `prepare_tab_background` | 배경 | Background | 背景 | 背景 | 背景 | Latar Belakang |
+| `background_select_coming_soon` | 준비 중입니다 | Coming soon | 準備中です | 即将推出 | 即將推出 | Segera hadir |
+
+### 관련 파일
+
+**신규 생성**
+| 파일 | 위치 | 설명 |
+|------|------|------|
+| `PrepareScreen.kt` | feature:studio | PrepareScreen + PrepareScreenContent + Preview 2개 |
+| `BackgroundSelectScreen.kt` | feature:studio | BackgroundSelectContent placeholder |
+
+**수정됨**
+| 파일 | 변경 내용 |
+|------|----------|
+| `core/navigation/.../NavKey.kt` | `data object ModelSelect` → `data object Prepare` |
+| `core/navigation/.../Navigator.kt` | `navigateToModelSelect()` → `navigateToPrepare()` |
+| `app/.../AppNavigatorImpl.kt` | `navigateToModelSelect()` → `navigateToPrepare()`, `NavKey.Prepare` 사용 |
+| `app/.../MainActivity.kt` | `composable<NavKey.Prepare>`, `PrepareScreen` import/사용 |
+| `feature/studio/.../ModelSelectScreen.kt` | `ModelSelectContent`(internal) 분리, 삭제 확인 다이얼로그를 Scaffold 소유 컴포저블로 이동 |
+| `feature/studio/src/main/res/values*/strings.xml` (6개) | `prepare_title`, `prepare_tab_character`, `prepare_tab_background`, `background_select_coming_soon` 추가 |

@@ -8,6 +8,12 @@
     <string name="model_select_external_label">外部モデル</string>
     <string name="model_select_selected_count">%d件選択中</string>
 
+    <!-- PrepareScreen -->
+    <string name="prepare_title">スタジオ準備</string>
+    <string name="prepare_tab_character">キャラクター</string>
+    <string name="prepare_tab_background">背景</string>
+    <string name="background_select_coming_soon">準備中です</string>
+
     <!-- ModelSelectScreen - Dialogs -->
     <string name="dialog_import_progress_title">モデルをインポート中…</string>
     <string name="dialog_error_detail_title">エラー詳細</string>

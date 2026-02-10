@@ -45,7 +45,7 @@ import org.comon.navigation.NavKey
 import org.comon.home.IntroScreen
 import org.comon.home.TitleScreen
 import org.comon.settings.SettingsScreen
-import org.comon.studio.ModelSelectScreen
+import org.comon.studio.PrepareScreen
 import org.comon.studio.StudioScreen
 import org.comon.livemotion.navigation.AppNavigatorImpl
 import org.comon.storage.ThemeLocalDataSource
@@ -184,7 +184,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 composable<NavKey.Title> {
                     TitleScreen(
-                        onStudioClick = { navigator.navigateToModelSelect() },
+                        onStudioClick = { navigator.navigateToPrepare() },
                         onSettingsClick = { navigator.navigateToSettings() },
                         onTermsOfServiceClick = { navigator.navigateToTermsOfServiceViewOnly() }
                     )
@@ -194,13 +194,13 @@ class MainActivity : AppCompatActivity() {
                         onBack = { navigator.back() }
                     )
                 }
-                composable<NavKey.ModelSelect> { backStackEntry ->
+                composable<NavKey.Prepare> { backStackEntry ->
                     // savedStateHandle에서 에러 메시지 읽기
                     val errorMessage by backStackEntry.savedStateHandle
                         .getStateFlow<String?>("model_load_error", null)
                         .collectAsState()
 
-                    ModelSelectScreen(
+                    PrepareScreen(
                         onModelSelected = { modelSource ->
                             navigator.navigateToStudio(modelSource)
                         },

@@ -107,6 +107,85 @@ fun ModelSelectScreen(
     )
 }
 
+/**
+ * ModelSelectScreen의 본문 영역 (Scaffold 없이).
+ *
+ * 그리드, FAB, 다이얼로그를 포함하며 PrepareScreen에서 탭 콘텐츠로 재사용됩니다.
+ */
+@Composable
+internal fun ModelSelectContent(
+    modifier: Modifier = Modifier,
+    uiState: ModelSelectViewModel.UiState,
+    snackbarState: SnackbarStateHolder,
+    onModelSelected: (ModelSource) -> Unit,
+    onImportClick: () -> Unit,
+    onIntent: (ModelSelectUiIntent) -> Unit,
+) {
+    Box(
+        modifier = modifier.fillMaxSize()
+    ) {
+        if (uiState.isLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier.align(Alignment.Center)
+            )
+        } else {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                contentPadding = PaddingValues(8.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                items(uiState.models) { modelSource ->
+                    ModelCard(
+                        modelSource = modelSource,
+                        isDeleteMode = uiState.isDeleteMode,
+                        isSelected = modelSource.id in uiState.selectedModelIds,
+                        onClick = {
+                            if (uiState.isDeleteMode) {
+                                if (modelSource is ModelSource.External) {
+                                    onIntent(ModelSelectUiIntent.ToggleModelSelection(modelSource.id))
+                                }
+                            } else {
+                                onModelSelected(modelSource)
+                            }
+                        },
+                        onLongClick = {
+                            if (modelSource is ModelSource.External && !uiState.isDeleteMode) {
+                                onIntent(ModelSelectUiIntent.EnterDeleteMode(modelSource.id))
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    // 가져오기 진행률 다이얼로그
+    uiState.importProgress?.let { progress ->
+        ImportProgressDialog(progress = progress)
+    }
+
+    // 에러 상세 다이얼로그
+    if (snackbarState.showErrorDialog) {
+        snackbarState.currentErrorDetail?.let {
+            ErrorDetailDialog(
+                title = stringResource(R.string.dialog_error_detail_title),
+                errorMessage = it,
+                confirmButtonText = stringResource(R.string.button_confirm),
+                onDismiss = { snackbarState.dismissErrorDialog() }
+            )
+        }
+    }
+
+    // 삭제 진행 다이얼로그
+    if (uiState.isDeleting) {
+        DeletingProgressDialog()
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ModelSelectScreenContent(
@@ -116,7 +195,6 @@ private fun ModelSelectScreenContent(
     onImportClick: () -> Unit,
     onIntent: (ModelSelectUiIntent) -> Unit,
 ) {
-    // 삭제 확인 다이얼로그 상태
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
 
     // 삭제 모드에서 뒤로가기 처리
@@ -127,7 +205,6 @@ private fun ModelSelectScreenContent(
     Scaffold(
         topBar = {
             if (uiState.isDeleteMode) {
-                // 삭제 모드 앱바
                 TopAppBar(
                     title = {
                         Text(
@@ -161,7 +238,6 @@ private fun ModelSelectScreenContent(
                     }
                 )
             } else {
-                // 일반 모드 앱바
                 TopAppBar(
                     title = { Text(stringResource(R.string.model_select_title), fontWeight = FontWeight.Bold) }
                 )
@@ -169,7 +245,6 @@ private fun ModelSelectScreenContent(
         },
         snackbarHost = { SnackbarHost(snackbarState.snackbarHostState) },
         floatingActionButton = {
-            // 삭제 모드가 아닐 때만 FAB 표시
             if (!uiState.isDeleteMode) {
                 FloatingActionButton(
                     onClick = onImportClick,
@@ -183,68 +258,14 @@ private fun ModelSelectScreenContent(
             }
         }
     ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            if (uiState.isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.align(Alignment.Center)
-                )
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(16.dp),
-                    contentPadding = PaddingValues(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    items(uiState.models) { modelSource ->
-                        ModelCard(
-                            modelSource = modelSource,
-                            isDeleteMode = uiState.isDeleteMode,
-                            isSelected = modelSource.id in uiState.selectedModelIds,
-                            onClick = {
-                                if (uiState.isDeleteMode) {
-                                    // 삭제 모드에서 외부 모델만 선택 가능
-                                    if (modelSource is ModelSource.External) {
-                                        onIntent(ModelSelectUiIntent.ToggleModelSelection(modelSource.id))
-                                    }
-                                } else {
-                                    onModelSelected(modelSource)
-                                }
-                            },
-                            onLongClick = {
-                                // 외부 모델만 길게 눌러서 삭제 모드 진입 가능
-                                if (modelSource is ModelSource.External && !uiState.isDeleteMode) {
-                                    onIntent(ModelSelectUiIntent.EnterDeleteMode(modelSource.id))
-                                }
-                            }
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    // 가져오기 진행률 다이얼로그
-    uiState.importProgress?.let { progress ->
-        ImportProgressDialog(progress = progress)
-    }
-
-    // 에러 상세 다이얼로그
-    if (snackbarState.showErrorDialog) {
-        snackbarState.currentErrorDetail?.let {
-            ErrorDetailDialog(
-                title = stringResource(R.string.dialog_error_detail_title),
-                errorMessage = it,
-                confirmButtonText = stringResource(R.string.button_confirm),
-                onDismiss = { snackbarState.dismissErrorDialog() }
-            )
-        }
+        ModelSelectContent(
+            modifier = Modifier.padding(paddingValues),
+            uiState = uiState,
+            snackbarState = snackbarState,
+            onModelSelected = onModelSelected,
+            onImportClick = onImportClick,
+            onIntent = onIntent,
+        )
     }
 
     // 삭제 확인 다이얼로그
@@ -257,11 +278,6 @@ private fun ModelSelectScreenContent(
             },
             onDismiss = { showDeleteConfirmDialog = false }
         )
-    }
-
-    // 삭제 진행 다이얼로그
-    if (uiState.isDeleting) {
-        DeletingProgressDialog()
     }
 }
 

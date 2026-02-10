@@ -8,6 +8,12 @@
     <string name="model_select_external_label">External Model</string>
     <string name="model_select_selected_count">%d selected</string>
 
+    <!-- PrepareScreen -->
+    <string name="prepare_title">Studio Prep</string>
+    <string name="prepare_tab_character">Character</string>
+    <string name="prepare_tab_background">Background</string>
+    <string name="background_select_coming_soon">Coming soon</string>
+
     <!-- ModelSelectScreen - Dialogs -->
     <string name="dialog_import_progress_title">Importing model…</string>
     <string name="dialog_error_detail_title">Error Details</string>

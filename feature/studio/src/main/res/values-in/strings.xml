@@ -8,6 +8,12 @@
     <string name="model_select_external_label">Model Eksternal</string>
     <string name="model_select_selected_count">%d dipilih</string>
 
+    <!-- PrepareScreen -->
+    <string name="prepare_title">Persiapan Studio</string>
+    <string name="prepare_tab_character">Karakter</string>
+    <string name="prepare_tab_background">Latar Belakang</string>
+    <string name="background_select_coming_soon">Segera hadir</string>
+
     <!-- ModelSelectScreen - Dialogs -->
     <string name="dialog_import_progress_title">Mengimpor model…</string>
     <string name="dialog_error_detail_title">Detail Error</string>

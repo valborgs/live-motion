@@ -37,8 +37,8 @@ class AppNavigatorImpl(
         }
     }
 
-    override fun navigateToModelSelect() {
-        navController.navigate(NavKey.ModelSelect)
+    override fun navigateToPrepare() {
+        navController.navigate(NavKey.Prepare)
     }
 
     override fun navigateToSettings() {

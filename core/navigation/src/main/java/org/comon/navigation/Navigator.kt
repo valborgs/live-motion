@@ -17,9 +17,9 @@ interface Navigator {
     fun navigateToStudio(modelSource: ModelSource)
 
     /**
-     * 모델 선택 화면으로 이동합니다.
+     * 준비 화면으로 이동합니다.
      */
-    fun navigateToModelSelect()
+    fun navigateToPrepare()
 
     /**
      * 설정 화면으로 이동합니다.

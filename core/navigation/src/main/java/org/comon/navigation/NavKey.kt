@@ -17,7 +17,7 @@ sealed interface NavKey {
     data object Settings : NavKey
 
     @Serializable
-    data object ModelSelect : NavKey
+    data object Prepare : NavKey
 
     /**
      * 스튜디오 화면 네비게이션 키
