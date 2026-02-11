@@ -201,6 +201,7 @@ class MainActivity : AppCompatActivity() {
                         .collectAsState()
 
                     PrepareScreen(
+                        onNavigateBack = { navigator.back() },
                         onModelSelected = { modelSource ->
                             navigator.navigateToStudio(modelSource)
                         },
