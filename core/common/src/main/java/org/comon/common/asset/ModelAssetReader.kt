@@ -38,6 +38,21 @@ class ModelAssetReader(private val assets: AssetManager) {
     }
 
     /**
+     * assets/backgrounds/ 폴더의 이미지 파일 목록을 반환합니다.
+     */
+    fun listBackgrounds(): List<String> {
+        return try {
+            assets.list("backgrounds")?.filter { name ->
+                name.endsWith(".png", ignoreCase = true) ||
+                    name.endsWith(".jpg", ignoreCase = true) ||
+                    name.endsWith(".jpeg", ignoreCase = true)
+            } ?: emptyList()
+        } catch (_: IOException) {
+            emptyList()
+        }
+    }
+
+    /**
      * assets 루트의 Live2D 모델 폴더 목록을 반환합니다.
      * Live2D 모델 폴더는 내부에 '{폴더이름}.model3.json' 파일을 포함합니다.
      */

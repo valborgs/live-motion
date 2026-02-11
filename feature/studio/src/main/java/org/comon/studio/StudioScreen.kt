@@ -94,6 +94,7 @@ fun StudioScreen(
                 modelSource = modelSource,
                 faceParams = faceParams,
                 isGestureEnabled = uiState.isGestureEnabled,
+                backgroundPath = uiState.backgroundPath,
                 effectFlow = viewModel.live2dEffect,
                 onModelLoaded = { viewModel.onIntent(StudioUiIntent.OnModelLoaded) },
                 onModelLoadError = onError,

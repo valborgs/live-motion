@@ -316,6 +316,10 @@ public class LAppMinimumView implements AutoCloseable {
         return renderingTarget;
     }
 
+    public LAppMinimumSpriteShader getSpriteShader() {
+        return spriteShader;
+    }
+
     private final CubismMatrix44 deviceToScreen = CubismMatrix44.create(); // デバイス座標からスクリーン座標に変換するための行列
     private final CubismViewMatrix viewMatrix = new CubismViewMatrix();   // 画面表示の拡縮や移動の変換を行う行列
 

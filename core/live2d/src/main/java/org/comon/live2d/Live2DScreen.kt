@@ -22,6 +22,7 @@ fun Live2DScreen(
     modelSource: ModelSource? = null,
     faceParams: Map<String, Float>? = null,
     isGestureEnabled: Boolean = false,
+    backgroundPath: String? = null,
     effectFlow: Flow<Live2DUiEffect>? = null,
     onModelLoaded: (() -> Unit)? = null,
     onModelLoadError: ((String) -> Unit)? = null
@@ -83,6 +84,17 @@ fun Live2DScreen(
                         )
                     }
                 }
+            }
+        }
+    }
+
+    // 배경 이미지 변경 시 GL Thread로 전달
+    LaunchedEffect(backgroundPath) {
+        glView.queueEvent {
+            if (backgroundPath != null) {
+                LAppMinimumDelegate.getInstance().setBackgroundImage(backgroundPath)
+            } else {
+                LAppMinimumDelegate.getInstance().clearBackgroundImage()
             }
         }
     }

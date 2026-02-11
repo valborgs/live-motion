@@ -44,6 +44,7 @@
 34. [보상형 광고 프리로드 및 로딩 대기](#34-보상형-광고-프리로드-및-로딩-대기-2026-02-09-업데이트)
 35. [앱 내 언어 변경 기능](#35-앱-내-언어-변경-기능-2026-02-10-업데이트)
 36. [PrepareScreen 추가 (캐릭터/배경 탭)](#36-preparescreen-추가-캐릭터배경-탭-2026-02-10-업데이트)
+37. [배경 선택 기능 구현 (BackgroundSelectScreen)](#37-배경-선택-기능-구현-backgroundselectscreen-2026-02-11-업데이트)
 
 ---
 
@@ -3838,3 +3839,356 @@ TitleScreen
 | `app/.../MainActivity.kt` | `composable<NavKey.Prepare>`, `PrepareScreen` import/사용 |
 | `feature/studio/.../ModelSelectScreen.kt` | `ModelSelectContent`(internal) 분리, 삭제 확인 다이얼로그를 Scaffold 소유 컴포저블로 이동 |
 | `feature/studio/src/main/res/values*/strings.xml` (6개) | `prepare_title`, `prepare_tab_character`, `prepare_tab_background`, `background_select_coming_soon` 추가 |
+
+---
+
+## 37. 배경 선택 기능 구현 (BackgroundSelectScreen) (2026-02-11 업데이트)
+
+### 개요
+
+PrepareScreen의 "배경" 탭을 placeholder에서 완전한 배경 선택/가져오기/삭제 기능으로 구현. 사용자가 배경 이미지를 선택하면 StudioScreen의 Live2D 렌더링 뒤에 해당 배경이 적용된다.
+
+### 요구사항
+
+1. **2열 그리드**: ModelSelectScreen과 동일한 `LazyVerticalGrid(2 columns)` 레이아웃
+2. **기본 배경**: "White" 기본 배경 항목 (항상 존재, 삭제 불가)
+3. **Asset 배경**: `assets/backgrounds/` 폴더의 PNG/JPG 파일 (삭제 불가)
+4. **외부 배경**: 사용자가 SAF로 가져온 이미지 (삭제 가능)
+5. **단일 선택**: 클릭으로 배경 선택, 하나만 적용 가능 (체크마크 표시)
+6. **삭제 모드**: 외부 배경만 Long-press로 삭제 모드 활성화
+7. **StudioScreen 적용**: 선택된 배경이 Live2D GL 렌더링의 배경으로 적용
+8. **선택 영속화**: DataStore로 선택 상태 저장 → 앱 재시작 후에도 유지
+
+### 아키텍처 (전체 레이어)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ feature:studio                                              │
+│  PrepareScreen ← BackgroundSelectViewModel                  │
+│    └─ BackgroundSelectContent ← BackgroundCard              │
+│        └─ ImportProgressDialog / DeletingProgressDialog      │
+├─────────────────────────────────────────────────────────────┤
+│ domain                                                      │
+│  BackgroundSource (Default/Asset/External)                   │
+│  IBackgroundRepository                                      │
+│  GetAllBackgroundsUseCase / ImportBackgroundUseCase          │
+│  DeleteBackgroundsUseCase                                   │
+├─────────────────────────────────────────────────────────────┤
+│ data                                                        │
+│  BackgroundRepositoryImpl                                   │
+├─────────────────────────────────────────────────────────────┤
+│ core:storage                                                │
+│  BackgroundCacheManager / ExternalBackgroundMetadataStore    │
+│  SelectedBackgroundStore                                    │
+├─────────────────────────────────────────────────────────────┤
+│ core:common                                                 │
+│  ModelAssetReader.listBackgrounds()                          │
+├─────────────────────────────────────────────────────────────┤
+│ core:live2d                                                 │
+│  LAppMinimumDelegate (배경 텍스처 렌더링)                       │
+│  Live2DScreen (backgroundPath 파라미터)                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 구현 세부사항
+
+#### 1. Domain Layer
+
+**`BackgroundSource.kt`** — 배경 소스 모델:
+
+```kotlin
+data class ExternalBackground(
+    val id: String,
+    val name: String,
+    val originalUri: String,
+    val cachePath: String,
+    val sizeBytes: Long,
+    val cachedAt: Long,
+)
+
+sealed class BackgroundSource {
+    data object Default : BackgroundSource()                     // 기본 흰색
+    data class Asset(val name: String) : BackgroundSource()      // assets/backgrounds/xxx.png
+    data class External(val background: ExternalBackground) : BackgroundSource()
+
+    val id: String get() = when (this) {
+        is Default -> "default_white"
+        is Asset -> "asset_$name"
+        is External -> background.id
+    }
+    val displayName: String get() = when (this) {
+        is Default -> "White"
+        is Asset -> name.removeSuffix(".png").removeSuffix(".jpg").removeSuffix(".jpeg")
+        is External -> background.name
+    }
+    val isExternal: Boolean get() = this is External
+}
+```
+
+**`IBackgroundRepository.kt`** — 리포지토리 인터페이스:
+
+```kotlin
+interface IBackgroundRepository {
+    suspend fun listAssetBackgrounds(): Result<List<String>>
+    suspend fun listExternalBackgrounds(): Result<List<ExternalBackground>>
+    suspend fun importBackground(fileUri: String, onProgress: (Float) -> Unit): Result<ExternalBackground>
+    suspend fun deleteBackground(backgroundId: String): Result<Unit>
+}
+```
+
+**UseCase 3종:**
+- `GetAllBackgroundsUseCase` — Default + Asset + External 합쳐서 반환
+- `ImportBackgroundUseCase` — 이미지 파일 가져오기 (progress 콜백)
+- `DeleteBackgroundsUseCase` — 다중 배경 삭제 (Set<String>)
+
+#### 2. Storage Layer
+
+**`BackgroundCacheManager`** — 캐시 관리:
+- 캐시 디렉토리: `cache/external_backgrounds/{id}/`
+- `generateBackgroundId(Uri)` — SHA-256 해시 기반 ID 생성
+- `copyToCache()` — 이미지 파일 복사 (50MB 제한, progress 콜백)
+- `deleteCache()`, `getCachedImagePath()`, `isCached()`
+
+**`ExternalBackgroundMetadataStore`** — 메타데이터 저장:
+- SharedPreferences + JSON 직렬화 (ExternalModelMetadataStore 패턴 동일)
+- `saveBackground()`, `getAllBackgrounds()`, `deleteBackground()`
+
+**`SelectedBackgroundStore`** — 선택 상태 영속화:
+- DataStore Preferences 기반
+- `selectedBackgroundIdFlow: Flow<String>` (기본값 `"default_white"`)
+- `saveSelectedBackgroundId(id: String)`
+
+#### 3. Data Layer
+
+**`BackgroundRepositoryImpl`** — 리포지토리 구현:
+- `ModelAssetReader`, `BackgroundCacheManager`, `ExternalBackgroundMetadataStore` 주입
+- `listAssetBackgrounds()` — ModelAssetReader.listBackgrounds() 호출
+- `importBackground()` — 캐시 복사 + 메타데이터 저장
+- `deleteBackground()` — 캐시 삭제 + 메타데이터 삭제 + 고아 메타데이터 정리
+
+#### 4. Feature Layer (MVI)
+
+**`BackgroundSelectUiIntent`** — 7개 Intent:
+
+| Intent | 설명 |
+|--------|------|
+| `LoadBackgrounds` | 배경 목록 로드 |
+| `ImportBackground(fileUri)` | 외부 이미지 가져오기 |
+| `SelectBackground(backgroundId)` | 배경 선택 (단일) |
+| `EnterDeleteMode(initialBackgroundId)` | 삭제 모드 진입 (Long-press) |
+| `ExitDeleteMode` | 삭제 모드 종료 |
+| `ToggleBackgroundSelection(backgroundId)` | 삭제 대상 토글 |
+| `DeleteSelectedBackgrounds` | 선택된 배경 삭제 실행 |
+
+**`BackgroundSelectViewModel`** — UiState:
+
+```kotlin
+data class UiState(
+    val backgrounds: List<BackgroundSource> = emptyList(),
+    val selectedBackgroundId: String = "default_white",
+    val isLoading: Boolean = false,
+    val importProgress: Float? = null,
+    val isDeleteMode: Boolean = false,
+    val selectedForDeletion: Set<String> = emptySet(),
+    val isDeleting: Boolean = false,
+)
+```
+
+- `init` 블록에서 `SelectedBackgroundStore.selectedBackgroundIdFlow`를 collect하여 selectedBackgroundId 동기화
+- 삭제 시 현재 선택된 배경이 삭제되면 자동으로 `"default_white"`로 리셋
+
+**`BackgroundCard`** — 배경 카드 컴포넌트:
+
+| 배경 타입 | 썸네일 | 삭제 가능 |
+|-----------|--------|-----------|
+| Default | 흰색 박스 | ❌ |
+| Asset | assets에서 Bitmap 로드 | ❌ |
+| External | 캐시 파일에서 Bitmap 로드 | ✅ |
+
+- 일반 모드: 선택 시 초록색 체크마크 원형 오버레이 (우상단)
+- 삭제 모드: 외부 배경만 빨간색 체크박스 표시, Default/Asset은 흐리게 처리
+
+**`BackgroundSelectContent`** — 배경 그리드 UI:
+- 2열 `LazyVerticalGrid` + `BackgroundCard`
+- `ImportProgressDialog`, `DeletingProgressDialog` 재사용
+
+**`PrepareScreen` 수정** — 배경 탭 통합:
+- `BackgroundSelectViewModel` 추가 주입
+- `imagePickerLauncher` (OpenDocument, `image/*` MIME) 추가
+- 배경 탭 FAB: 이미지 가져오기
+- 배경 탭 삭제 모드 TopAppBar (선택 수 + 삭제 버튼)
+- 탭별 삭제 확인 다이얼로그 분리 (모델용 / 배경용)
+
+#### 5. Live2D 배경 렌더링
+
+**`LAppMinimumDelegate.java`** — GL 배경 렌더링:
+
+```java
+// 추가된 필드
+private final float[] backgroundColor = {1f, 1f, 1f, 1f};
+private int backgroundTextureId = -1;
+private LAppMinimumSprite backgroundSprite;
+private int backgroundImageWidth;
+private int backgroundImageHeight;
+```
+
+**`setBackgroundImage(String filePath)`**:
+- 절대 경로(외부 배경) → `FileInputStream`으로 Bitmap 로드
+- 상대 경로(Asset 배경) → `AssetManager.open()`으로 Bitmap 로드
+- `GLUtils.texImage2D`로 GL 텍스처 생성
+- `LAppMinimumSprite`로 화면 전체 크기 스프라이트 생성
+
+**Center-crop 렌더링** (`run()` 메서드):
+
+```java
+// 이미지/화면 aspect ratio 비교
+float screenAspect = (float) windowWidth / windowHeight;
+float imageAspect = (float) backgroundImageWidth / backgroundImageHeight;
+
+float uvLeft = 0f, uvRight = 1f, uvTop = 0f, uvBottom = 1f;
+if (imageAspect > screenAspect) {
+    // 이미지가 화면보다 가로로 넓음 → 좌우 잘라냄
+    float visibleFraction = screenAspect / imageAspect;
+    float offset = (1f - visibleFraction) / 2f;
+    uvLeft = offset;
+    uvRight = 1f - offset;
+} else if (imageAspect < screenAspect) {
+    // 이미지가 화면보다 세로로 긺 → 상하 잘라냄
+    float visibleFraction = imageAspect / screenAspect;
+    float offset = (1f - visibleFraction) / 2f;
+    uvTop = offset;
+    uvBottom = 1f - offset;
+}
+
+// UV Y축 반전 (Android Bitmap ↔ OpenGL 좌표계 차이)
+final float[] uvVertex = {
+    uvRight, uvTop,
+    uvLeft,  uvTop,
+    uvLeft,  uvBottom,
+    uvRight, uvBottom
+};
+```
+
+| 상황 | 처리 |
+|------|------|
+| Landscape 이미지 → Portrait 화면 | 세로 전체 채움, 좌우 균등 잘라냄 |
+| Portrait 이미지 → Landscape 화면 | 가로 전체 채움, 상하 균등 잘라냄 |
+| 비율 동일 | 잘라내기 없음 (UV 0~1) |
+
+**UV Y축 반전 이슈**: `GLUtils.texImage2D`는 Bitmap 데이터를 그대로 업로드하는데, Android Bitmap은 (0,0)이 좌상단이고 OpenGL은 (0,0)이 좌하단이므로 텍스처가 상하 반전된다. UV의 Y 좌표(uvTop/uvBottom)를 swap하여 해결.
+
+**렌더링 순서**: `glClear` → 배경 스프라이트 → Live2D 모델 → UI 오버레이
+
+**`Live2DScreen.kt`** — backgroundPath 파라미터 추가:
+
+```kotlin
+@Composable
+fun Live2DScreen(
+    faceParams: Map<String, Float>,
+    backgroundPath: String? = null,  // 추가
+    // ...
+) {
+    // backgroundPath 변경 시 GL 스레드에서 배경 적용
+    LaunchedEffect(backgroundPath) {
+        glSurfaceView?.queueEvent {
+            if (backgroundPath != null) {
+                LAppMinimumDelegate.getInstance().setBackgroundImage(backgroundPath)
+            } else {
+                LAppMinimumDelegate.getInstance().clearBackgroundImage()
+            }
+        }
+    }
+}
+```
+
+#### 6. StudioScreen 배경 적용 흐름
+
+**`StudioViewModel`** — 배경 경로 해석:
+
+```kotlin
+// SelectedBackgroundStore에서 선택된 ID를 collect
+// → 배경 소스 목록에서 ID에 해당하는 BackgroundSource를 찾아 경로 결정
+
+private fun resolveBackgroundPath(source: BackgroundSource): String? = when (source) {
+    is BackgroundSource.Default -> null                        // glClearColor(1,1,1,1)
+    is BackgroundSource.Asset -> "backgrounds/${source.name}"   // Asset 상대 경로
+    is BackgroundSource.External -> source.background.cachePath // 캐시 절대 경로
+}
+```
+
+**데이터 흐름:**
+
+```
+배경 탭에서 배경 선택
+  → SelectedBackgroundStore.saveSelectedBackgroundId(id)
+    → StudioViewModel이 selectedBackgroundIdFlow collect
+      → resolveBackgroundPath()로 경로 결정
+        → StudioUiState.backgroundPath 업데이트
+          → StudioScreen이 Live2DScreen(backgroundPath=...) 호출
+            → LaunchedEffect에서 GL 스레드로 setBackgroundImage() 전달
+              → LAppMinimumDelegate.run()에서 center-crop 렌더링
+```
+
+### DI 모듈 변경
+
+**`StorageModule`** — 3개 provider 추가:
+- `provideBackgroundCacheManager()`
+- `provideExternalBackgroundMetadataStore()`
+- `provideSelectedBackgroundStore()`
+
+**`RepositoryModule`** — 1개 provider 추가:
+- `provideBackgroundRepository()` → `IBackgroundRepository` ← `BackgroundRepositoryImpl`
+
+**`UseCaseModule`** — 3개 provider 추가:
+- `provideGetAllBackgroundsUseCase()`
+- `provideImportBackgroundUseCase()`
+- `provideDeleteBackgroundsUseCase()`
+
+### 문자열 리소스 (6개 locale)
+
+| 키 | ko | en | ja | zh-CN | zh-TW | in |
+|----|----|----|----|----|----|----|
+| `background_select_external_label` | 외부 배경 | External | 外部背景 | 外部背景 | 外部背景 | Eksternal |
+| `background_select_import` | 배경 가져오기 | Import Background | 背景をインポート | 导入背景 | 匯入背景 | Impor Latar Belakang |
+| `background_select_selected_count` | %d개 선택됨 | %d selected | %d件選択中 | 已选择%d个 | 已選擇%d個 | %d dipilih |
+| `background_select_delete_mode_exit` | 삭제 모드 종료 | Exit Delete Mode | 削除モード終了 | 退出删除模式 | 退出刪除模式 | Keluar Mode Hapus |
+| `background_select_delete_selected` | 선택한 배경 삭제 | Delete Selected Backgrounds | 選択した背景を削除 | 删除所选背景 | 刪除所選背景 | Hapus Latar Belakang Terpilih |
+| `dialog_bg_delete_title` | 배경 삭제 | Delete Backgrounds | 背景削除 | 删除背景 | 刪除背景 | Hapus Latar Belakang |
+| `dialog_bg_delete_message` | %d개의 배경을 삭제하시겠습니까? | Delete %d background(s)? | %d件の背景を削除しますか？ | 确定删除%d个背景吗？ | 確定刪除%d個背景嗎？ | Hapus %d latar belakang? |
+
+### 관련 파일
+
+**신규 생성**
+| 파일 | 위치 | 설명 |
+|------|------|------|
+| `BackgroundSource.kt` | domain/model | ExternalBackground + BackgroundSource sealed class |
+| `IBackgroundRepository.kt` | domain/repository | 배경 리포지토리 인터페이스 |
+| `GetAllBackgroundsUseCase.kt` | domain/usecase | Default+Asset+External 배경 합산 조회 |
+| `ImportBackgroundUseCase.kt` | domain/usecase | 이미지 파일 가져오기 |
+| `DeleteBackgroundsUseCase.kt` | domain/usecase | 다중 배경 삭제 |
+| `BackgroundCacheManager.kt` | core:storage | 배경 이미지 캐시 관리 (SHA-256 ID, 50MB 제한) |
+| `ExternalBackgroundMetadataStore.kt` | core:storage | SharedPreferences 기반 메타데이터 저장 |
+| `SelectedBackgroundStore.kt` | core:storage | DataStore 기반 선택 배경 ID 영속화 |
+| `BackgroundRepositoryImpl.kt` | data/repository | IBackgroundRepository 구현체 |
+| `BackgroundSelectUiIntent.kt` | feature:studio | 7개 UI Intent |
+| `BackgroundSelectUiEffect.kt` | feature:studio | Snackbar/Error UI Effect |
+| `BackgroundSelectViewModel.kt` | feature:studio | 배경 선택 ViewModel (MVI) |
+| `BackgroundCard.kt` | feature:studio/components | 배경 카드 컴포넌트 (썸네일+체크마크) |
+| `assets/backgrounds/.gitkeep` | app | Asset 배경 폴더 placeholder |
+
+**수정됨**
+| 파일 | 변경 내용 |
+|------|----------|
+| `core/common/.../ModelAssetReader.kt` | `listBackgrounds(): List<String>` 메서드 추가 |
+| `core/storage/.../di/StorageModule.kt` | BackgroundCacheManager, ExternalBackgroundMetadataStore, SelectedBackgroundStore provider 추가 |
+| `data/.../di/RepositoryModule.kt` | BackgroundRepository provider 추가 |
+| `data/.../di/UseCaseModule.kt` | 배경 관련 UseCase 3종 provider 추가 |
+| `core/live2d/.../LAppMinimumDelegate.java` | 배경 텍스처 렌더링 (center-crop), setBackgroundImage/clearBackgroundImage 추가 |
+| `core/live2d/.../LAppMinimumView.java` | `getSpriteShader()` 접근자 추가 |
+| `core/live2d/.../Live2DScreen.kt` | `backgroundPath` 파라미터 추가, LaunchedEffect로 GL 배경 적용 |
+| `feature/studio/.../BackgroundSelectScreen.kt` | placeholder → 완전한 BackgroundSelectContent 구현 |
+| `feature/studio/.../PrepareScreen.kt` | BackgroundSelectViewModel 주입, 배경 탭 FAB/삭제 모드/다이얼로그 통합 |
+| `feature/studio/.../components/DeleteConfirmDialog.kt` | `@StringRes titleResId/messageResId` 파라미터 추가 (배경/모델 재사용) |
+| `feature/studio/.../StudioViewModel.kt` | SelectedBackgroundStore 주입, backgroundPath 해석 로직 |
+| `feature/studio/.../StudioScreen.kt` | Live2DScreen에 backgroundPath 전달 |
+| `feature/studio/src/main/res/values*/strings.xml` (6개) | 배경 관련 문자열 7개 추가 |

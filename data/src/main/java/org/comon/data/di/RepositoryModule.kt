@@ -6,13 +6,17 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import org.comon.common.asset.ModelAssetReader
+import org.comon.data.repository.BackgroundRepositoryImpl
 import org.comon.data.repository.ConsentRepositoryImpl
 import org.comon.data.repository.ExternalModelRepositoryImpl
 import org.comon.data.repository.ModelRepositoryImpl
+import org.comon.domain.repository.IBackgroundRepository
 import org.comon.domain.repository.IConsentRepository
 import org.comon.domain.repository.IExternalModelRepository
 import org.comon.domain.repository.IModelRepository
+import org.comon.storage.BackgroundCacheManager
 import org.comon.storage.ConsentLocalDataSource
+import org.comon.storage.ExternalBackgroundMetadataStore
 import org.comon.storage.ExternalModelMetadataStore
 import org.comon.storage.ModelCacheManager
 import org.comon.storage.SAFPermissionManager
@@ -56,5 +60,15 @@ object RepositoryModule {
         firestore: FirebaseFirestore
     ): IConsentRepository {
         return ConsentRepositoryImpl(localDataSource, firestore)
+    }
+
+    @Provides
+    @Singleton
+    fun provideBackgroundRepository(
+        modelAssetReader: ModelAssetReader,
+        backgroundCacheManager: BackgroundCacheManager,
+        metadataStore: ExternalBackgroundMetadataStore,
+    ): IBackgroundRepository {
+        return BackgroundRepositoryImpl(modelAssetReader, backgroundCacheManager, metadataStore)
     }
 }

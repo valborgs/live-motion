@@ -4,12 +4,16 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import org.comon.domain.repository.IBackgroundRepository
 import org.comon.domain.repository.IExternalModelRepository
 import org.comon.domain.repository.IModelRepository
+import org.comon.domain.usecase.DeleteBackgroundsUseCase
 import org.comon.domain.usecase.DeleteExternalModelsUseCase
+import org.comon.domain.usecase.GetAllBackgroundsUseCase
 import org.comon.domain.usecase.GetAllModelsUseCase
 import org.comon.domain.usecase.GetLive2DModelsUseCase
 import org.comon.domain.usecase.GetModelMetadataUseCase
+import org.comon.domain.usecase.ImportBackgroundUseCase
 import org.comon.domain.usecase.ImportExternalModelUseCase
 import org.comon.domain.usecase.MapFacePoseUseCase
 import javax.inject.Singleton
@@ -67,5 +71,29 @@ object UseCaseModule {
     @Singleton
     fun provideMapFacePoseUseCase(): MapFacePoseUseCase {
         return MapFacePoseUseCase()
+    }
+
+    @Provides
+    @Singleton
+    fun provideGetAllBackgroundsUseCase(
+        backgroundRepository: IBackgroundRepository
+    ): GetAllBackgroundsUseCase {
+        return GetAllBackgroundsUseCase(backgroundRepository)
+    }
+
+    @Provides
+    @Singleton
+    fun provideImportBackgroundUseCase(
+        backgroundRepository: IBackgroundRepository
+    ): ImportBackgroundUseCase {
+        return ImportBackgroundUseCase(backgroundRepository)
+    }
+
+    @Provides
+    @Singleton
+    fun provideDeleteBackgroundsUseCase(
+        backgroundRepository: IBackgroundRepository
+    ): DeleteBackgroundsUseCase {
+        return DeleteBackgroundsUseCase(backgroundRepository)
     }
 }

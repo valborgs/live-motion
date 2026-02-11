@@ -6,10 +6,13 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import org.comon.storage.BackgroundCacheManager
 import org.comon.storage.ConsentLocalDataSource
+import org.comon.storage.ExternalBackgroundMetadataStore
 import org.comon.storage.ExternalModelMetadataStore
 import org.comon.storage.ModelCacheManager
 import org.comon.storage.SAFPermissionManager
+import org.comon.storage.SelectedBackgroundStore
 import org.comon.storage.ThemeLocalDataSource
 import org.comon.storage.TrackingSettingsLocalDataSource
 import javax.inject.Singleton
@@ -67,5 +70,29 @@ object StorageModule {
         @ApplicationContext context: Context
     ): ThemeLocalDataSource {
         return ThemeLocalDataSource(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideBackgroundCacheManager(
+        @ApplicationContext context: Context
+    ): BackgroundCacheManager {
+        return BackgroundCacheManager(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideExternalBackgroundMetadataStore(
+        @ApplicationContext context: Context
+    ): ExternalBackgroundMetadataStore {
+        return ExternalBackgroundMetadataStore(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideSelectedBackgroundStore(
+        @ApplicationContext context: Context
+    ): SelectedBackgroundStore {
+        return SelectedBackgroundStore(context)
     }
 }

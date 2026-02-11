@@ -14,6 +14,15 @@
     <string name="prepare_tab_background">배경</string>
     <string name="background_select_coming_soon">준비 중입니다</string>
 
+    <!-- BackgroundSelectScreen -->
+    <string name="background_select_external_label">외부 배경</string>
+    <string name="background_select_import">배경 가져오기</string>
+    <string name="background_select_selected_count">%d개 선택됨</string>
+    <string name="background_select_delete_mode_exit">삭제 모드 종료</string>
+    <string name="background_select_delete_selected">선택한 배경 삭제</string>
+    <string name="dialog_bg_delete_title">배경 삭제</string>
+    <string name="dialog_bg_delete_message">%d개의 배경을 삭제하시겠습니까?</string>
+
     <!-- ModelSelectScreen - Dialogs -->
     <string name="dialog_import_progress_title">모델 가져오는 중...</string>
     <string name="dialog_error_detail_title">에러 상세</string>

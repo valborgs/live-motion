@@ -12,14 +12,17 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.comon.domain.model.BackgroundSource
 import org.comon.domain.model.FacePose
 import org.comon.domain.model.FacePoseSmoothingState
 import org.comon.domain.model.ModelSource
 import org.comon.domain.model.TrackingSensitivity
+import org.comon.domain.usecase.GetAllBackgroundsUseCase
 import org.comon.domain.usecase.GetModelMetadataUseCase
 import org.comon.domain.usecase.MapFacePoseUseCase
 import org.comon.live2d.LAppMinimumDelegate
 import org.comon.live2d.Live2DUiEffect
+import org.comon.storage.SelectedBackgroundStore
 import org.comon.storage.TrackingSettingsLocalDataSource
 import org.comon.tracking.FaceTracker
 import org.comon.tracking.FaceTrackerFactory
@@ -54,7 +57,9 @@ class StudioViewModel @Inject constructor(
     private val faceTrackerFactory: FaceTrackerFactory,
     private val getModelMetadataUseCase: GetModelMetadataUseCase,
     private val mapFacePoseUseCase: MapFacePoseUseCase,
-    private val trackingSettingsLocalDataSource: TrackingSettingsLocalDataSource
+    private val trackingSettingsLocalDataSource: TrackingSettingsLocalDataSource,
+    private val selectedBackgroundStore: SelectedBackgroundStore,
+    private val getAllBackgroundsUseCase: GetAllBackgroundsUseCase,
 ) : ViewModel() {
 
     // EMA 스무딩 상태 (ViewModel에서 관리)
@@ -63,10 +68,46 @@ class StudioViewModel @Inject constructor(
     // 트래킹 감도 (DataStore에서 실시간 수집)
     private var currentSensitivity = TrackingSensitivity()
 
+    // 배경 소스 목록 캐시
+    private var backgroundSources: List<BackgroundSource> = emptyList()
+
     init {
         viewModelScope.launch {
             trackingSettingsLocalDataSource.sensitivityFlow.collect { sensitivity ->
                 currentSensitivity = sensitivity
+            }
+        }
+        loadBackgroundPath()
+    }
+
+    private fun loadBackgroundPath() {
+        viewModelScope.launch {
+            // 배경 목록 로드
+            getAllBackgroundsUseCase().onSuccess { backgrounds ->
+                backgroundSources = backgrounds
+            }
+
+            // 선택된 배경 ID 구독
+            selectedBackgroundStore.selectedBackgroundIdFlow.collect { selectedId ->
+                val path = resolveBackgroundPath(selectedId)
+                _uiState.update { it.copy(backgroundPath = path) }
+            }
+        }
+    }
+
+    private fun resolveBackgroundPath(selectedId: String): String? {
+        return when {
+            selectedId == SelectedBackgroundStore.DEFAULT_ID -> null
+            selectedId.startsWith("asset_") -> {
+                val fileName = selectedId.removePrefix("asset_")
+                "backgrounds/$fileName"
+            }
+            else -> {
+                // External background — find from cached sources
+                val external = backgroundSources.firstOrNull {
+                    it is BackgroundSource.External && it.id == selectedId
+                } as? BackgroundSource.External
+                external?.background?.cachePath
             }
         }
     }
@@ -122,7 +163,10 @@ class StudioViewModel @Inject constructor(
         val expressionsFolder: String? = null,
         val motionsFolder: String? = null,
         val expressionFiles: List<String> = emptyList(),
-        val motionFiles: List<String> = emptyList()
+        val motionFiles: List<String> = emptyList(),
+
+        // 배경
+        val backgroundPath: String? = null,
     )
 
     sealed class DialogState {

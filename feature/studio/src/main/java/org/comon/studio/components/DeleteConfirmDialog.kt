@@ -1,5 +1,6 @@
 package org.comon.studio.components
 
+import androidx.annotation.StringRes
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
@@ -10,6 +11,8 @@ import org.comon.studio.R
 @Composable
 internal fun DeleteConfirmDialog(
     count: Int,
+    @StringRes titleResId: Int = R.string.dialog_delete_title,
+    @StringRes messageResId: Int = R.string.dialog_delete_message,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -17,12 +20,12 @@ internal fun DeleteConfirmDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = stringResource(R.string.dialog_delete_title),
+                text = stringResource(titleResId),
                 fontWeight = FontWeight.Bold
             )
         },
         text = {
-            Text(stringResource(R.string.dialog_delete_message, count))
+            Text(stringResource(messageResId, count))
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {

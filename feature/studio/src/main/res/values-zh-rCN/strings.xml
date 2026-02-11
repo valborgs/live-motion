@@ -14,6 +14,15 @@
     <string name="prepare_tab_background">背景</string>
     <string name="background_select_coming_soon">即将推出</string>
 
+    <!-- BackgroundSelectScreen -->
+    <string name="background_select_external_label">外部背景</string>
+    <string name="background_select_import">导入背景</string>
+    <string name="background_select_selected_count">已选择%d个</string>
+    <string name="background_select_delete_mode_exit">退出删除模式</string>
+    <string name="background_select_delete_selected">删除所选背景</string>
+    <string name="dialog_bg_delete_title">删除背景</string>
+    <string name="dialog_bg_delete_message">确定删除%d个背景吗？</string>
+
     <!-- ModelSelectScreen - Dialogs -->
     <string name="dialog_import_progress_title">正在导入模型…</string>
     <string name="dialog_error_detail_title">错误详情</string>

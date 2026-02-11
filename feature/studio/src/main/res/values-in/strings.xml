@@ -14,6 +14,15 @@
     <string name="prepare_tab_background">Latar Belakang</string>
     <string name="background_select_coming_soon">Segera hadir</string>
 
+    <!-- BackgroundSelectScreen -->
+    <string name="background_select_external_label">Eksternal</string>
+    <string name="background_select_import">Impor Latar Belakang</string>
+    <string name="background_select_selected_count">%d dipilih</string>
+    <string name="background_select_delete_mode_exit">Keluar Mode Hapus</string>
+    <string name="background_select_delete_selected">Hapus Latar Belakang Terpilih</string>
+    <string name="dialog_bg_delete_title">Hapus Latar Belakang</string>
+    <string name="dialog_bg_delete_message">Hapus %d latar belakang?</string>
+
     <!-- ModelSelectScreen - Dialogs -->
     <string name="dialog_import_progress_title">Mengimpor model…</string>
     <string name="dialog_error_detail_title">Detail Error</string>

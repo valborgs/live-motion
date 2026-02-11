@@ -14,6 +14,15 @@
     <string name="prepare_tab_background">Background</string>
     <string name="background_select_coming_soon">Coming soon</string>
 
+    <!-- BackgroundSelectScreen -->
+    <string name="background_select_external_label">External</string>
+    <string name="background_select_import">Import Background</string>
+    <string name="background_select_selected_count">%d selected</string>
+    <string name="background_select_delete_mode_exit">Exit Delete Mode</string>
+    <string name="background_select_delete_selected">Delete Selected Backgrounds</string>
+    <string name="dialog_bg_delete_title">Delete Backgrounds</string>
+    <string name="dialog_bg_delete_message">Delete %d background(s)?</string>
+
     <!-- ModelSelectScreen - Dialogs -->
     <string name="dialog_import_progress_title">Importing model…</string>
     <string name="dialog_error_detail_title">Error Details</string>

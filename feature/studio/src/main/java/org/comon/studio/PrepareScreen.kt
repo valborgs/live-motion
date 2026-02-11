@@ -19,6 +19,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import org.comon.domain.model.BackgroundSource
 import org.comon.domain.model.ModelSource
 import org.comon.storage.SAFPermissionManager
 import org.comon.studio.components.DeleteConfirmDialog
@@ -32,17 +33,19 @@ fun PrepareScreen(
     onModelSelected: (ModelSource) -> Unit,
     errorMessage: String? = null,
     onErrorConsumed: () -> Unit = {},
-    viewModel: ModelSelectViewModel = hiltViewModel()
+    viewModel: ModelSelectViewModel = hiltViewModel(),
+    bgViewModel: BackgroundSelectViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
 
     val uiState by viewModel.uiState.collectAsState()
+    val bgUiState by bgViewModel.uiState.collectAsState()
     val snackbarState = rememberSnackbarStateHolder()
 
     // 탭 상태
     var selectedTabIndex by remember { mutableIntStateOf(0) }
 
-    // UI Effect 처리
+    // Model UI Effect 처리
     val snackbarAction = stringResource(R.string.snackbar_action_detail)
     LaunchedEffect(Unit) {
         viewModel.uiEffect.collect { effect ->
@@ -65,16 +68,47 @@ fun PrepareScreen(
         }
     }
 
+    // Background UI Effect 처리
+    LaunchedEffect(Unit) {
+        bgViewModel.uiEffect.collect { effect ->
+            when (effect) {
+                is BackgroundSelectUiEffect.ShowSnackbar -> {
+                    snackbarState.showSnackbar(
+                        message = effect.message,
+                        actionLabel = effect.actionLabel,
+                        duration = SnackbarDuration.Short
+                    )
+                }
+                is BackgroundSelectUiEffect.ShowErrorWithDetail -> {
+                    snackbarState.showErrorWithDetail(
+                        displayMessage = effect.displayMessage,
+                        detailMessage = effect.detailMessage,
+                        actionLabel = snackbarAction
+                    )
+                }
+            }
+        }
+    }
+
     // SAF 권한 관리자
     val safPermissionManager = remember { SAFPermissionManager(context) }
 
-    // 폴더 선택기 런처
+    // 모델 폴더 선택기 런처
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
         uri?.let {
             safPermissionManager.persistPermission(it)
             viewModel.onIntent(ModelSelectUiIntent.ImportModel(it.toString()))
+        }
+    }
+
+    // 배경 이미지 선택기 런처
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            bgViewModel.onIntent(BackgroundSelectUiIntent.ImportBackground(it.toString()))
         }
     }
 
@@ -93,12 +127,15 @@ fun PrepareScreen(
 
     PrepareScreenContent(
         uiState = uiState,
+        bgUiState = bgUiState,
         snackbarState = snackbarState,
         selectedTabIndex = selectedTabIndex,
         onTabSelected = { selectedTabIndex = it },
         onModelSelected = onModelSelected,
-        onImportClick = { folderPickerLauncher.launch(null) },
-        onIntent = viewModel::onIntent,
+        onModelImportClick = { folderPickerLauncher.launch(null) },
+        onBgImportClick = { imagePickerLauncher.launch(arrayOf("image/*")) },
+        onModelIntent = viewModel::onIntent,
+        onBgIntent = bgViewModel::onIntent,
     )
 }
 
@@ -106,12 +143,15 @@ fun PrepareScreen(
 @Composable
 private fun PrepareScreenContent(
     uiState: ModelSelectViewModel.UiState,
+    bgUiState: BackgroundSelectViewModel.UiState,
     snackbarState: SnackbarStateHolder,
     selectedTabIndex: Int,
     onTabSelected: (Int) -> Unit,
     onModelSelected: (ModelSource) -> Unit,
-    onImportClick: () -> Unit,
-    onIntent: (ModelSelectUiIntent) -> Unit,
+    onModelImportClick: () -> Unit,
+    onBgImportClick: () -> Unit,
+    onModelIntent: (ModelSelectUiIntent) -> Unit,
+    onBgIntent: (BackgroundSelectUiIntent) -> Unit,
 ) {
     val tabTitles = listOf(
         stringResource(R.string.prepare_tab_character),
@@ -119,17 +159,25 @@ private fun PrepareScreenContent(
     )
 
     // 삭제 확인 다이얼로그 상태
-    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var showModelDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var showBgDeleteConfirmDialog by remember { mutableStateOf(false) }
+
+    // 현재 탭의 삭제 모드 여부
+    val isAnyDeleteMode = (selectedTabIndex == 0 && uiState.isDeleteMode) ||
+        (selectedTabIndex == 1 && bgUiState.isDeleteMode)
 
     // 삭제 모드에서 뒤로가기 처리
-    BackHandler(enabled = uiState.isDeleteMode) {
-        onIntent(ModelSelectUiIntent.ExitDeleteMode)
+    BackHandler(enabled = isAnyDeleteMode) {
+        when (selectedTabIndex) {
+            0 -> onModelIntent(ModelSelectUiIntent.ExitDeleteMode)
+            1 -> onBgIntent(BackgroundSelectUiIntent.ExitDeleteMode)
+        }
     }
 
     Scaffold(
         topBar = {
             if (uiState.isDeleteMode && selectedTabIndex == 0) {
-                // 삭제 모드 앱바 (캐릭터 탭에서만)
+                // 모델 삭제 모드 앱바
                 TopAppBar(
                     title = {
                         Text(
@@ -138,7 +186,7 @@ private fun PrepareScreenContent(
                         )
                     },
                     navigationIcon = {
-                        IconButton(onClick = { onIntent(ModelSelectUiIntent.ExitDeleteMode) }) {
+                        IconButton(onClick = { onModelIntent(ModelSelectUiIntent.ExitDeleteMode) }) {
                             Icon(
                                 imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = stringResource(R.string.model_select_delete_mode_exit)
@@ -147,13 +195,47 @@ private fun PrepareScreenContent(
                     },
                     actions = {
                         IconButton(
-                            onClick = { showDeleteConfirmDialog = true },
+                            onClick = { showModelDeleteConfirmDialog = true },
                             enabled = uiState.selectedModelIds.isNotEmpty()
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Delete,
                                 contentDescription = stringResource(R.string.model_select_delete_selected),
                                 tint = if (uiState.selectedModelIds.isNotEmpty()) {
+                                    Color(0xFFE53935)
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                                }
+                            )
+                        }
+                    }
+                )
+            } else if (bgUiState.isDeleteMode && selectedTabIndex == 1) {
+                // 배경 삭제 모드 앱바
+                TopAppBar(
+                    title = {
+                        Text(
+                            stringResource(R.string.background_select_selected_count, bgUiState.selectedForDeletion.size),
+                            fontWeight = FontWeight.Bold
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { onBgIntent(BackgroundSelectUiIntent.ExitDeleteMode) }) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = stringResource(R.string.background_select_delete_mode_exit)
+                            )
+                        }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = { showBgDeleteConfirmDialog = true },
+                            enabled = bgUiState.selectedForDeletion.isNotEmpty()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = stringResource(R.string.background_select_delete_selected),
+                                tint = if (bgUiState.selectedForDeletion.isNotEmpty()) {
                                     Color(0xFFE53935)
                                 } else {
                                     MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
@@ -182,16 +264,30 @@ private fun PrepareScreenContent(
         },
         snackbarHost = { SnackbarHost(snackbarState.snackbarHostState) },
         floatingActionButton = {
-            // 캐릭터 탭 + 일반 모드일 때만 FAB 표시
-            if (selectedTabIndex == 0 && !uiState.isDeleteMode) {
-                FloatingActionButton(
-                    onClick = onImportClick,
-                    containerColor = MaterialTheme.colorScheme.primary
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = stringResource(R.string.model_select_import)
-                    )
+            if (!isAnyDeleteMode) {
+                when (selectedTabIndex) {
+                    0 -> {
+                        FloatingActionButton(
+                            onClick = onModelImportClick,
+                            containerColor = MaterialTheme.colorScheme.primary
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = stringResource(R.string.model_select_import)
+                            )
+                        }
+                    }
+                    1 -> {
+                        FloatingActionButton(
+                            onClick = onBgImportClick,
+                            containerColor = MaterialTheme.colorScheme.primary
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = stringResource(R.string.background_select_import)
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -202,24 +298,41 @@ private fun PrepareScreenContent(
                 uiState = uiState,
                 snackbarState = snackbarState,
                 onModelSelected = onModelSelected,
-                onImportClick = onImportClick,
-                onIntent = onIntent,
+                onImportClick = onModelImportClick,
+                onIntent = onModelIntent,
             )
             1 -> BackgroundSelectContent(
                 modifier = Modifier.padding(paddingValues),
+                uiState = bgUiState,
+                snackbarState = snackbarState,
+                onIntent = onBgIntent,
             )
         }
     }
 
-    // 삭제 확인 다이얼로그
-    if (showDeleteConfirmDialog) {
+    // 모델 삭제 확인 다이얼로그
+    if (showModelDeleteConfirmDialog) {
         DeleteConfirmDialog(
             count = uiState.selectedModelIds.size,
             onConfirm = {
-                showDeleteConfirmDialog = false
-                onIntent(ModelSelectUiIntent.DeleteSelectedModels)
+                showModelDeleteConfirmDialog = false
+                onModelIntent(ModelSelectUiIntent.DeleteSelectedModels)
             },
-            onDismiss = { showDeleteConfirmDialog = false }
+            onDismiss = { showModelDeleteConfirmDialog = false }
+        )
+    }
+
+    // 배경 삭제 확인 다이얼로그
+    if (showBgDeleteConfirmDialog) {
+        DeleteConfirmDialog(
+            count = bgUiState.selectedForDeletion.size,
+            titleResId = R.string.dialog_bg_delete_title,
+            messageResId = R.string.dialog_bg_delete_message,
+            onConfirm = {
+                showBgDeleteConfirmDialog = false
+                onBgIntent(BackgroundSelectUiIntent.DeleteSelectedBackgrounds)
+            },
+            onDismiss = { showBgDeleteConfirmDialog = false }
         )
     }
 }
@@ -232,12 +345,17 @@ private fun PrepareScreenPreview() {
             uiState = ModelSelectViewModel.UiState(
                 models = listOf(ModelSource.Asset("Haru"), ModelSource.Asset("Mark")),
             ),
+            bgUiState = BackgroundSelectViewModel.UiState(
+                backgrounds = listOf(BackgroundSource.Default),
+            ),
             snackbarState = rememberSnackbarStateHolder(),
             selectedTabIndex = 0,
             onTabSelected = {},
             onModelSelected = {},
-            onImportClick = {},
-            onIntent = {},
+            onModelImportClick = {},
+            onBgImportClick = {},
+            onModelIntent = {},
+            onBgIntent = {},
         )
     }
 }
@@ -248,12 +366,21 @@ private fun PrepareScreenBackgroundTabPreview() {
     LiveMotionTheme {
         PrepareScreenContent(
             uiState = ModelSelectViewModel.UiState(),
+            bgUiState = BackgroundSelectViewModel.UiState(
+                backgrounds = listOf(
+                    BackgroundSource.Default,
+                    BackgroundSource.Asset("sunset.png"),
+                ),
+                selectedBackgroundId = "default_white",
+            ),
             snackbarState = rememberSnackbarStateHolder(),
             selectedTabIndex = 1,
             onTabSelected = {},
             onModelSelected = {},
-            onImportClick = {},
-            onIntent = {},
+            onModelImportClick = {},
+            onBgImportClick = {},
+            onModelIntent = {},
+            onBgIntent = {},
         )
     }
 }
