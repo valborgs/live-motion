@@ -261,7 +261,7 @@ private fun PrepareScreenContent(
                             }
                         }
                     )
-                    TabRow(selectedTabIndex = selectedTabIndex) {
+                    PrimaryTabRow(selectedTabIndex = selectedTabIndex) {
                         tabTitles.forEachIndexed { index, title ->
                             Tab(
                                 selected = selectedTabIndex == index,
@@ -309,7 +309,6 @@ private fun PrepareScreenContent(
                 uiState = modelSelectViewModelUiState,
                 snackbarState = snackbarState,
                 onModelSelected = onModelSelected,
-                onImportClick = onModelImportClick,
                 onIntent = onModelIntent,
             )
             1 -> BackgroundSelectContent(

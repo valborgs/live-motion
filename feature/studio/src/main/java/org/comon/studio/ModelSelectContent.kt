@@ -28,7 +28,6 @@ internal fun ModelSelectContent(
     uiState: ModelSelectViewModel.UiState,
     snackbarState: SnackbarStateHolder,
     onModelSelected: (ModelSource) -> Unit,
-    onImportClick: () -> Unit,
     onIntent: (ModelSelectUiIntent) -> Unit,
 ) {
     Box(
