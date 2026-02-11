@@ -45,6 +45,7 @@
 35. [앱 내 언어 변경 기능](#35-앱-내-언어-변경-기능-2026-02-10-업데이트)
 36. [PrepareScreen 추가 (캐릭터/배경 탭)](#36-preparescreen-추가-캐릭터배경-탭-2026-02-10-업데이트)
 37. [배경 선택 기능 구현 (BackgroundSelectScreen)](#37-배경-선택-기능-구현-backgroundselectscreen-2026-02-11-업데이트)
+38. [BackgroundCard 이미지 로딩 최적화 (Coil 도입)](#38-backgroundcard-이미지-로딩-최적화-coil-도입-2026-02-11-업데이트)
 
 ---
 
@@ -4192,3 +4193,92 @@ private fun resolveBackgroundPath(source: BackgroundSource): String? = when (sou
 | `feature/studio/.../StudioViewModel.kt` | SelectedBackgroundStore 주입, backgroundPath 해석 로직 |
 | `feature/studio/.../StudioScreen.kt` | Live2DScreen에 backgroundPath 전달 |
 | `feature/studio/src/main/res/values*/strings.xml` (6개) | 배경 관련 문자열 7개 추가 |
+
+---
+
+## 38. BackgroundCard 이미지 로딩 최적화 (Coil 도입) (2026-02-11 업데이트)
+
+### 문제
+
+배경 탭 전환 시 미세한 렉(프레임 드롭)이 발생했다.
+
+### 원인 분석
+
+`BackgroundCard`에서 `BitmapFactory.decodeStream()`/`decodeFile()`을 `remember {}` 블록 안에서 **메인 스레드(composition 스레드)에서 동기적으로** 실행하고 있었다.
+
+```kotlin
+// 변경 전 — 메인 스레드에서 동기 디코딩
+val bitmap = remember(backgroundSource.name) {
+    val stream = context.assets.open("backgrounds/${backgroundSource.name}")
+    BitmapFactory.decodeStream(stream)?.asImageBitmap()
+}
+```
+
+- `LazyVerticalGrid`가 화면에 보이는 모든 카드를 한 프레임 내에 compose하면서, 각 카드가 **풀 해상도 이미지를 동기적으로 디코딩**
+- `BitmapFactory.Options.inSampleSize` 미설정으로 원본 해상도 그대로 디코딩
+- 카드 수에 비례하여 프레임 드롭 발생 (예: 4개 카드 × 고해상도 이미지 = 수백ms 지연)
+
+### 해결 방법
+
+#### 1. Coil 3 비동기 이미지 로딩 라이브러리 도입
+
+`BitmapFactory` 동기 디코딩을 Coil의 `AsyncImage`로 교체하여 이미지 디코딩을 백그라운드 스레드에서 처리하도록 변경했다.
+
+```kotlin
+// 변경 후 — Coil AsyncImage 비동기 디코딩
+AsyncImage(
+    model = ImageRequest.Builder(context)
+        .data("file:///android_asset/backgrounds/${backgroundSource.name}")
+        .bitmapConfig(Bitmap.Config.RGB_565)
+        .size(THUMBNAIL_SIZE)
+        .build(),
+    contentDescription = backgroundSource.displayName,
+    modifier = Modifier.fillMaxSize(),
+    contentScale = ContentScale.Crop,
+)
+```
+
+#### 2. 썸네일 품질 최적화
+
+두 가지 설정을 조합하여 메모리 사용량과 디코딩 시간을 줄였다.
+
+| 설정 | 값 | 효과 |
+|------|----|------|
+| `bitmapConfig` | `Bitmap.Config.RGB_565` | 픽셀당 2바이트 (ARGB_8888의 절반) |
+| `size` | `Size(512, 512)` | 원본 대신 512px로 다운샘플링 |
+
+- 예시: 4000×3000 원본 ARGB_8888 (~48MB) → 512×512 RGB_565 (~0.5MB)
+- 2열 그리드에서 카드 하나가 약 160~180dp이므로, 3x 밀도 기기에서도 512px이면 충분
+
+#### 3. 로딩 모델별 data 설정
+
+| BackgroundSource | data | 설명 |
+|------------------|------|------|
+| `Asset` | `"file:///android_asset/backgrounds/{name}"` | Asset 이미지 URI |
+| `External` | `File(cachePath)` | 캐시된 로컬 파일 |
+| `Default` | — | AsyncImage 미사용 (텍스트만 표시) |
+
+### Coil 의존성 추가
+
+**gradle/libs.versions.toml**
+```toml
+[versions]
+coil = "3.3.0"
+
+[libraries]
+coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
+```
+
+**feature/studio/build.gradle.kts**
+```kotlin
+implementation(libs.coil.compose)
+```
+
+### 관련 파일
+
+**수정됨**
+| 파일 | 변경 내용 |
+|------|----------|
+| `gradle/libs.versions.toml` | `coil = "3.3.0"` 버전 및 `coil-compose` 라이브러리 추가 |
+| `feature/studio/build.gradle.kts` | `implementation(libs.coil.compose)` 의존성 추가 |
+| `feature/studio/.../components/BackgroundCard.kt` | `BitmapFactory` 동기 디코딩 → Coil `AsyncImage` + `RGB_565` + `size(512)` 비동기 로딩으로 교체, `BackgroundThumbnail` private composable 제거 |

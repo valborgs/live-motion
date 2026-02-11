@@ -74,6 +74,9 @@ dependencies {
     // MediaPipe (for NormalizedLandmark)
     implementation(libs.mediapipe.tasks.vision)
     
+    // Coil
+    implementation(libs.coil.compose)
+
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)

@@ -1,8 +1,6 @@
 package org.comon.studio.components
 
-import android.graphics.BitmapFactory
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -12,24 +10,28 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import android.graphics.Bitmap
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
+import coil3.request.bitmapConfig
+import coil3.size.Size
 import org.comon.domain.model.BackgroundSource
 import org.comon.studio.R
 import org.comon.ui.theme.LiveMotionTheme
 import java.io.File
+
+/** 2열 그리드 썸네일용 디코딩 해상도 (px) */
+private val THUMBNAIL_SIZE = Size(512, 512)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -61,6 +63,7 @@ internal fun BackgroundCard(
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             // 배경 썸네일
+            val context = LocalContext.current
             when (backgroundSource) {
                 is BackgroundSource.Default -> {
                     Box(
@@ -79,36 +82,28 @@ internal fun BackgroundCard(
                     }
                 }
                 is BackgroundSource.Asset -> {
-                    val context = LocalContext.current
-                    val bitmap = remember(backgroundSource.name) {
-                        try {
-                            val stream = context.assets.open("backgrounds/${backgroundSource.name}")
-                            BitmapFactory.decodeStream(stream)?.asImageBitmap()
-                        } catch (_: Exception) {
-                            null
-                        }
-                    }
-                    BackgroundThumbnail(
-                        bitmap = bitmap,
-                        displayName = backgroundSource.displayName,
-                        isDisabled = isDeleteMode
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data("file:///android_asset/backgrounds/${backgroundSource.name}")
+                            .bitmapConfig(Bitmap.Config.RGB_565)
+                            .size(THUMBNAIL_SIZE)
+                            .build(),
+                        contentDescription = backgroundSource.displayName,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                        alpha = if (isDeleteMode) 0.5f else 1f,
                     )
                 }
                 is BackgroundSource.External -> {
-                    val bitmap = remember(backgroundSource.background.cachePath) {
-                        try {
-                            val file = File(backgroundSource.background.cachePath)
-                            if (file.exists()) {
-                                BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
-                            } else null
-                        } catch (_: Exception) {
-                            null
-                        }
-                    }
-                    BackgroundThumbnail(
-                        bitmap = bitmap,
-                        displayName = backgroundSource.displayName,
-                        isDisabled = false
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(File(backgroundSource.background.cachePath))
+                            .bitmapConfig(Bitmap.Config.RGB_565)
+                            .size(THUMBNAIL_SIZE)
+                            .build(),
+                        contentDescription = backgroundSource.displayName,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
                     )
                 }
             }
@@ -179,36 +174,6 @@ internal fun BackgroundCard(
     }
 }
 
-@Composable
-private fun BackgroundThumbnail(
-    bitmap: ImageBitmap?,
-    displayName: String,
-    isDisabled: Boolean,
-) {
-    if (bitmap != null) {
-        Image(
-            bitmap = bitmap,
-            contentDescription = displayName,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop,
-            alpha = if (isDisabled) 0.5f else 1f
-        )
-    } else {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = displayName,
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
 
 @Preview(name = "Default Background")
 @Composable
