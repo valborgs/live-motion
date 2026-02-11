@@ -1,7 +1,10 @@
 package org.comon.tracking
 
 import android.content.Context
+import android.hardware.display.DisplayManager
 import android.util.Log
+import android.view.Display
+import android.view.Surface
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
@@ -200,6 +203,10 @@ class FaceTracker(
     @Volatile
     private var isCameraReady = false
 
+    // 현재 프레임의 회전 각도 (landscape 대응용)
+    @Volatile
+    private var currentRotationDegrees = 0
+
     /**
      * 카메라 시작 (프리뷰 없이 얼굴 추적만)
      * 프리뷰를 표시하려면 attachPreview()를 별도로 호출
@@ -260,15 +267,24 @@ class FaceTracker(
             imageProxy.close()
             return
         }
-        
+
+        // 디스플레이 회전에 맞춰 targetRotation 갱신 (configChanges 대응)
+        val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
+        val displayRotation = displayManager?.getDisplay(Display.DEFAULT_DISPLAY)?.rotation
+            ?: Surface.ROTATION_0
+        imageAnalyzer?.targetRotation = displayRotation
+
+        // 현재 프레임의 rotationDegrees 저장 (processResult에서 사용)
+        currentRotationDegrees = imageProxy.imageInfo.rotationDegrees
+
         val bitmap = imageProxy.toBitmap()
         val mpImage = BitmapImageBuilder(bitmap).build()
-        
+
         // 카메라 센서의 회전 정보를 MediaPipe에 전달
         val imageProcessingOptions = ImageProcessingOptions.builder()
             .setRotationDegrees(imageProxy.imageInfo.rotationDegrees)
             .build()
-        
+
         try {
             faceLandmarker?.detectAsync(mpImage, imageProcessingOptions, System.currentTimeMillis())
         } catch (e: Exception) {
@@ -301,10 +317,15 @@ class FaceTracker(
         lastFaceDetectedTime = currentTime
 
         val rawLandmarks = landmarksList[0]
-        // 사용자 피드백 반영: 이전 보정 시 뒤집힌 현상을 해결하기 위해 180도 추가 회전 적용
-        // 최종 공식 (90도 CCW): x' = y, y' = 1.0 - x
-        val rotatedLandmarks = rawLandmarks.map { 
-            NormalizedLandmark.create(it.y(), 1.0f - it.x(), it.z())
+        // 화면 방향에 따른 동적 랜드마크 회전 (portrait/landscape 모두 대응)
+        val rotatedLandmarks = rawLandmarks.map { lm ->
+            when (currentRotationDegrees) {
+                0 -> NormalizedLandmark.create(lm.x(), lm.y(), lm.z())
+                90 -> NormalizedLandmark.create(1.0f - lm.y(), lm.x(), lm.z())
+                180 -> NormalizedLandmark.create(1.0f - lm.x(), 1.0f - lm.y(), lm.z())
+                270 -> NormalizedLandmark.create(lm.y(), 1.0f - lm.x(), lm.z())
+                else -> NormalizedLandmark.create(lm.y(), 1.0f - lm.x(), lm.z())
+            }
         }
         _faceLandmarks.value = rotatedLandmarks
 

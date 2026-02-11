@@ -46,6 +46,7 @@
 36. [PrepareScreen 추가 (캐릭터/배경 탭)](#36-preparescreen-추가-캐릭터배경-탭-2026-02-10-업데이트)
 37. [배경 선택 기능 구현 (BackgroundSelectScreen)](#37-배경-선택-기능-구현-backgroundselectscreen-2026-02-11-업데이트)
 38. [BackgroundCard 이미지 로딩 최적화 (Coil 도입)](#38-backgroundcard-이미지-로딩-최적화-coil-도입-2026-02-11-업데이트)
+39. [Landscape 모드 페이스 트래킹 수정](#39-landscape-모드-페이스-트래킹-수정-2026-02-11-업데이트)
 
 ---
 
@@ -4282,3 +4283,118 @@ implementation(libs.coil.compose)
 | `gradle/libs.versions.toml` | `coil = "3.3.0"` 버전 및 `coil-compose` 라이브러리 추가 |
 | `feature/studio/build.gradle.kts` | `implementation(libs.coil.compose)` 의존성 추가 |
 | `feature/studio/.../components/BackgroundCard.kt` | `BitmapFactory` 동기 디코딩 → Coil `AsyncImage` + `RGB_565` + `size(512)` 비동기 로딩으로 교체, `BackgroundThumbnail` private composable 제거 |
+
+---
+
+## 39. Landscape 모드 페이스 트래킹 수정 (2026-02-11 업데이트)
+
+### 배경: `configChanges` 적용 이유
+
+화면 회전 시 Android 기본 동작은 Activity를 파괴 후 재생성하는 것이다. 이 앱에서는 다음과 같은 무거운 리소스가 Activity 생명주기에 연결되어 있어, 재생성 비용이 매우 크다.
+
+| 리소스 | 재생성 시 비용 |
+|--------|---------------|
+| CameraX 파이프라인 | 카메라 재오픈 + UseCase 재바인딩 |
+| MediaPipe FaceLandmarker | 모델 파일 로딩 + GPU/CPU delegate 초기화 |
+| Live2D GL Context | OpenGL 컨텍스트 재생성 + 모델 리로딩 |
+| 자동 캘리브레이션 | 5초 중립 포즈 수집 재시작 |
+
+Activity 재생성 없이 화면 회전을 처리하기 위해 `AndroidManifest.xml`에 다음을 적용했다.
+
+```xml
+<activity
+    android:name=".MainActivity"
+    android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
+    ... />
+```
+
+이로써 화면 회전 시 Activity가 파괴되지 않고 `onConfigurationChanged()`만 호출되어, 카메라/트래킹/렌더링이 끊김 없이 유지된다. 단, CameraX가 자동으로 화면 방향을 감지하지 못하는 부작용이 발생하여 아래 문제가 나타났다.
+
+### 문제
+
+`configChanges` 적용 후 화면 회전 시 모델/트래킹은 유지되지만, landscape 모드에서 모델 움직임이 실제 얼굴 움직임과 일치하지 않았다.
+
+### 원인 분석
+
+두 가지 근본 원인이 있었다.
+
+#### 1. 랜드마크 회전 하드코딩
+
+`processResult()`에서 랜드마크 좌표 변환이 portrait 전용 90° CCW(`x'=y, y'=1-x`)로 고정되어 있었다.
+
+```kotlin
+// 변경 전 — portrait 전용 하드코딩
+val rotatedLandmarks = rawLandmarks.map {
+    NormalizedLandmark.create(it.y(), 1.0f - it.x(), it.z())
+}
+```
+
+Landscape에서는 센서-화면 간 회전 각도가 달라지므로 다른 변환이 필요하다.
+
+#### 2. ImageAnalysis `targetRotation` 미갱신
+
+`startCamera()`에서 생성된 `ImageAnalysis`는 초기 화면 방향의 `targetRotation`을 유지한다. `configChanges`로 Activity가 재생성되지 않으므로 CameraX가 자동으로 `targetRotation`을 갱신하지 않는다. 결과적으로 `imageProxy.imageInfo.rotationDegrees`가 항상 portrait 값(270°)을 반환하여, MediaPipe에 전달되는 회전 정보도 부정확했다.
+
+### 해결 방법
+
+#### 1. 매 프레임마다 `targetRotation` 갱신
+
+`analyzeImage()`에서 `DisplayManager`를 통해 현재 디스플레이 회전을 읽고, `ImageAnalysis.targetRotation`을 갱신한다. 이로써 `imageProxy.imageInfo.rotationDegrees`가 실제 화면 방향에 맞는 값을 반환한다.
+
+```kotlin
+private fun analyzeImage(imageProxy: ImageProxy) {
+    // ...
+
+    // 디스플레이 회전에 맞춰 targetRotation 갱신 (configChanges 대응)
+    val displayManager = context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
+    val displayRotation = displayManager?.getDisplay(Display.DEFAULT_DISPLAY)?.rotation
+        ?: Surface.ROTATION_0
+    imageAnalyzer?.targetRotation = displayRotation
+
+    // 현재 프레임의 rotationDegrees 저장 (processResult에서 사용)
+    currentRotationDegrees = imageProxy.imageInfo.rotationDegrees
+
+    // ...
+}
+```
+
+#### 2. 동적 랜드마크 회전
+
+`processResult()`에서 `currentRotationDegrees` 기반 `when` 분기로 방향별 좌표 변환을 적용한다.
+
+```kotlin
+val rotatedLandmarks = rawLandmarks.map { lm ->
+    when (currentRotationDegrees) {
+        0   -> NormalizedLandmark.create(lm.x(), lm.y(), lm.z())
+        90  -> NormalizedLandmark.create(1.0f - lm.y(), lm.x(), lm.z())
+        180 -> NormalizedLandmark.create(1.0f - lm.x(), 1.0f - lm.y(), lm.z())
+        270 -> NormalizedLandmark.create(lm.y(), 1.0f - lm.x(), lm.z())
+        else -> NormalizedLandmark.create(lm.y(), 1.0f - lm.x(), lm.z())
+    }
+}
+```
+
+### 회전 변환 공식
+
+| rotationDegrees | 변환 | 설명 |
+|---|---|---|
+| 0° | `(x, y)` | 회전 불필요 (센서≈화면) |
+| 90° CW | `(1-y, x)` | 센서→화면 90° 시계방향 |
+| 180° | `(1-x, 1-y)` | 상하좌우 반전 |
+| 270° CW | `(y, 1-x)` | 기존 portrait 코드와 동일 |
+
+### 캘리브레이션 영향
+
+방향 전환 후 재캘리브레이션이 불필요한 이유:
+
+- **Yaw/Pitch**: Z좌표 기반 계산 → 2D 회전에 불변
+- **Roll**: `atan2(Y_diff, X_diff)` → 올바른 회전 적용 후 같은 물리적 기울기가 같은 각도 생성
+- **Blendshapes**: 얼굴 기준 값 → 화면 방향과 무관
+
+### 관련 파일
+
+**수정됨**
+| 파일 | 변경 내용 |
+|------|----------|
+| `app/src/main/AndroidManifest.xml` | MainActivity에 `configChanges="orientation\|screenSize\|screenLayout\|smallestScreenSize"` 추가하여 화면 회전 시 Activity 재생성 방지 |
+| `core/tracking/.../FaceTracker.kt` | `DisplayManager`/`Display`/`Surface` import 추가, `currentRotationDegrees` 필드 추가, `analyzeImage()`에서 매 프레임 `targetRotation` 갱신 및 `rotationDegrees` 저장, `processResult()`에서 하드코딩 회전을 `when` 분기 동적 회전으로 교체 |
