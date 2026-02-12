@@ -52,6 +52,7 @@
 42. [화면 회전 시 배경 스프라이트 rect 미갱신 수정](#42-화면-회전-시-배경-스프라이트-rect-미갱신-수정-2026-02-12-업데이트)
 43. [모델/배경 리스트 정렬 순서 변경](#43-모델배경-리스트-정렬-순서-변경-2026-02-12-업데이트)
 44. [모델 뷰 영상 녹화 기능](#44-모델-뷰-영상-녹화-기능-2026-02-12-업데이트)
+45. [녹화 영상/음성 분리 저장 기능](#45-녹화-영상음성-분리-저장-기능-2026-02-12-업데이트)
 
 ---
 
@@ -5000,3 +5001,160 @@ class StudioViewModel @Inject constructor(
 | `feature/studio/.../StudioUiEffect.kt` | 녹화 관련 이펙트 3종 추가 |
 | `feature/studio/src/main/res/values/strings.xml` | 녹화 관련 문자열 리소스 추가 |
 | `app/src/main/AndroidManifest.xml` | `RECORD_AUDIO` 권한, `android.hardware.microphone` feature 선언 |
+
+## 45. 녹화 영상/음성 분리 저장 기능 (2026-02-12 업데이트)
+
+### 개요
+
+녹화 정지 시 오디오 트랙이 포함된 파일이면, 영상과 음성을 분리하여 날짜시간 폴더에 저장할 수 있는 옵션을 제공한다. 분리를 선택하면 원본 파일도 함께 저장된다.
+
+### 사용자 흐름
+
+```
+녹화 정지
+  ├─ 오디오 트랙 있음 → SplitConfirmDialog ("영상/음성을 분리하시겠습니까?")
+  │   ├─ "예" → SplitProgressDialog (진행률 + 취소)
+  │   │   │     → MediaSplitter로 분리
+  │   │   ├─ 완료 → OpenDocumentTree (폴더 선택)
+  │   │   │         → 폴더 생성 → 원본 + 영상 + 음성 파일 복사
+  │   │   └─ 취소 → SplitConfirmDialog 다시 표시
+  │   └─ "아니오" → 기존 CreateDocument 단일 파일 저장
+  └─ 오디오 트랙 없음 → 기존 CreateDocument 단일 파일 저장
+```
+
+저장 폴더 구조:
+```
+LiveMotion_YYYYMMDD_HHmmss/
+├── LiveMotion_YYYYMMDD_HHmmss.mp4        ← 원본 (영상+음성)
+├── LiveMotion_YYYYMMDD_HHmmss_video.mp4  ← 영상만
+└── LiveMotion_YYYYMMDD_HHmmss_audio.m4a  ← 음성만
+```
+
+### 아키텍처
+
+#### MediaSplitter
+
+`MediaExtractor`로 소스 파일의 video/audio 트랙 인덱스를 탐색하고, 각 트랙을 별도의 `MediaMuxer`로 추출한다.
+
+```kotlin
+class MediaSplitter(private val cacheDir: File) {
+    data class SplitResult(val videoFile: File, val audioFile: File?)
+
+    suspend fun split(sourceFile: File, onProgress: (Float) -> Unit): SplitResult
+    fun cleanupTempFiles()
+}
+```
+
+- 진행률: video 추출 0.0~0.5, audio 추출 0.5~1.0
+- 코루틴 취소 지원: `readSampleData` 루프 내에서 `coroutineContext.ensureActive()` 호출
+- duration 기반 진행률 계산: `MediaFormat.KEY_DURATION`에서 전체 시간을 읽고, 현재 `sampleTime`과 비교
+
+#### 오디오 트랙 감지
+
+`stopRecording()` 시 `MediaExtractor`로 임시 파일의 트랙을 검사하여 `audio/` MIME 타입 트랙 존재 여부를 확인한다.
+
+```kotlin
+private fun hasAudioTrack(file: File): Boolean {
+    val extractor = MediaExtractor()
+    return try {
+        extractor.setDataSource(file.absolutePath)
+        (0 until extractor.trackCount).any { i ->
+            extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME)
+                ?.startsWith("audio/") == true
+        }
+    } finally {
+        extractor.release()
+    }
+}
+```
+
+### MVI 패턴 확장
+
+#### StudioUiIntent (분리 관련)
+
+```kotlin
+sealed interface StudioUiIntent {
+    // ... 기존 인텐트 ...
+    data object ConfirmSplit : StudioUiIntent        // 분리 확인 "예"
+    data object DeclineSplit : StudioUiIntent         // 분리 확인 "아니오"
+    data object CancelSplit : StudioUiIntent          // 분리 작업 취소
+    data class OnSplitFolderSelected(val uriString: String?) : StudioUiIntent  // SAF 폴더 선택 결과
+}
+```
+
+#### StudioUiEffect (분리 관련)
+
+```kotlin
+sealed class StudioUiEffect {
+    // ... 기존 이펙트 ...
+    data class RequestSplitFolderLocation(val suggestedFolderName: String) : StudioUiEffect()
+    data class SplitSaved(val message: String) : StudioUiEffect()
+}
+```
+
+#### DialogState 확장
+
+```kotlin
+sealed class DialogState {
+    // ... 기존 상태 ...
+    data object SplitConfirm : DialogState()
+    data class SplitProgress(val progress: Float) : DialogState()
+}
+```
+
+### ViewModel 상태 관리
+
+분리 작업은 비동기로 실행되므로 다음 필드로 상태를 추적한다:
+
+| 필드 | 타입 | 용도 |
+|------|------|------|
+| `mediaSplitter` | `MediaSplitter?` | 분리 작업 인스턴스 |
+| `splitJob` | `Job?` | 분리 코루틴 Job (취소 지원) |
+| `pendingSplitResult` | `MediaSplitter.SplitResult?` | 분리 완료 후 결과 보관 |
+| `pendingBaseFileName` | `String?` | 파일명 기본값 (`LiveMotion_YYYYMMDD_HHmmss`) |
+
+취소 흐름: `cancelSplit()` → `splitJob?.cancel()` → `CancellationException` catch에서 임시 파일 정리 후 `SplitConfirm` 다이얼로그 재표시.
+
+### UI 컴포넌트
+
+#### SplitConfirmDialog
+
+`DeleteConfirmDialog` 패턴 참조. `AlertDialog`에 "예"/"아니오" 버튼, `onDismissRequest = {}` (외부 터치 닫기 방지).
+
+#### SplitProgressDialog
+
+`ImportProgressDialog` 패턴 참조. `Dialog` + `Card` + `LinearProgressIndicator` + 퍼센트 텍스트 + 취소 버튼. `@Preview` 함수 포함.
+
+#### StudioScreen
+
+- `splitFolderLauncher`: `rememberLauncherForActivityResult(OpenDocumentTree())` — 분리 파일 저장 폴더 선택
+- Effect 처리: `RequestSplitFolderLocation` → `splitFolderLauncher.launch(null)`, `SplitSaved` → 스낵바 표시
+- Dialog 분기: `SplitConfirm` → `SplitConfirmDialog`, `SplitProgress` → `SplitProgressDialog`
+
+### 폴더 생성 및 파일 복사 (DocumentFile)
+
+SAF `OpenDocumentTree`로 선택한 트리 URI에서 `DocumentFile.fromTreeUri()`로 부모 디렉토리를 얻고, `createDirectory()`로 날짜시간 폴더를 생성한 뒤, `createFile()` + `ContentResolver.openOutputStream()`으로 원본/영상/음성 파일을 복사한다. `androidx.documentfile:documentfile:1.1.0` 의존성을 `feature:studio`에 추가.
+
+### 관련 파일
+
+**신규 생성**
+| 파일 | 용도 |
+|------|------|
+| `feature/studio/.../recording/MediaSplitter.kt` | MediaExtractor/MediaMuxer를 사용한 video/audio 트랙 분리 |
+| `feature/studio/.../components/SplitConfirmDialog.kt` | 분리 확인 다이얼로그 (예/아니오) |
+| `feature/studio/.../components/SplitProgressDialog.kt` | 분리 진행률 다이얼로그 (퍼센트 + 취소) |
+
+**수정됨**
+| 파일 | 변경 내용 |
+|------|----------|
+| `feature/studio/.../StudioUiIntent.kt` | 분리 관련 인텐트 4종 추가 (`ConfirmSplit`, `DeclineSplit`, `CancelSplit`, `OnSplitFolderSelected`) |
+| `feature/studio/.../StudioUiEffect.kt` | 분리 관련 이펙트 2종 추가 (`RequestSplitFolderLocation`, `SplitSaved`) |
+| `feature/studio/.../StudioViewModel.kt` | `DialogState` 확장, `stopRecording()` 분기 추가, `confirmSplit`/`declineSplit`/`cancelSplit`/`onSplitFolderSelected`/`hasAudioTrack`/`cleanupAllTempFiles` 메서드 추가, `onCleared()` 정리 보강 |
+| `feature/studio/.../StudioScreen.kt` | `splitFolderLauncher` 추가, Effect/Dialog 분기 추가, `SplitConfirmDialog`/`SplitProgressDialog` import |
+| `feature/studio/build.gradle.kts` | `implementation(libs.androidx.documentfile)` 추가 |
+| `feature/studio/src/main/res/values/strings.xml` | `dialog_split_confirm_title`, `dialog_split_confirm_message`, `dialog_split_progress_title`, `button_yes`, `button_no` 추가 |
+| `feature/studio/src/main/res/values-en/strings.xml` | 영어 번역 추가 |
+| `feature/studio/src/main/res/values-ja/strings.xml` | 일본어 번역 추가 |
+| `feature/studio/src/main/res/values-zh-rCN/strings.xml` | 중국어 간체 번역 추가 |
+| `feature/studio/src/main/res/values-zh-rTW/strings.xml` | 중국어 번체 번역 추가 |
+| `feature/studio/src/main/res/values-in/strings.xml` | 인도네시아어 번역 추가 |

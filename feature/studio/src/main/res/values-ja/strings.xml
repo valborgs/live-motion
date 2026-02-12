@@ -66,9 +66,16 @@
     <string name="dialog_reset">初期化</string>
     <string name="dialog_tracking_error_title">トラッキングエラー詳細</string>
 
+    <!-- StudioScreen - Split -->
+    <string name="dialog_split_confirm_title">映像/音声分離</string>
+    <string name="dialog_split_confirm_message">映像と音声を分離して保存しますか？</string>
+    <string name="dialog_split_progress_title">映像/音声を分離中…</string>
+
     <!-- Common -->
     <string name="button_confirm">確認</string>
     <string name="button_cancel">キャンセル</string>
     <string name="button_delete">削除</string>
     <string name="button_close">閉じる</string>
+    <string name="button_yes">はい</string>
+    <string name="button_no">いいえ</string>
 </resources>

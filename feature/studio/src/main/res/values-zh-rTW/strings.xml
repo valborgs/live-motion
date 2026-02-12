@@ -66,9 +66,16 @@
     <string name="dialog_reset">重設</string>
     <string name="dialog_tracking_error_title">追蹤錯誤詳情</string>
 
+    <!-- StudioScreen - Split -->
+    <string name="dialog_split_confirm_title">分離影片/音訊</string>
+    <string name="dialog_split_confirm_message">是否將影片和音訊分開儲存？</string>
+    <string name="dialog_split_progress_title">正在分離影片/音訊…</string>
+
     <!-- Common -->
     <string name="button_confirm">確認</string>
     <string name="button_cancel">取消</string>
     <string name="button_delete">刪除</string>
     <string name="button_close">關閉</string>
+    <string name="button_yes">是</string>
+    <string name="button_no">否</string>
 </resources>

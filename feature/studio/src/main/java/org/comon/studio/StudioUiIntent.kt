@@ -64,4 +64,18 @@ sealed interface StudioUiIntent {
 
     /** GL Surface 크기 수신 */
     data class OnSurfaceSizeAvailable(val width: Int, val height: Int) : StudioUiIntent
+
+    // ━━━━━━ 영상/음성 분리 관련 ━━━━━━
+
+    /** 분리 확인 "예" */
+    data object ConfirmSplit : StudioUiIntent
+
+    /** 분리 확인 "아니오" */
+    data object DeclineSplit : StudioUiIntent
+
+    /** 분리 작업 취소 */
+    data object CancelSplit : StudioUiIntent
+
+    /** SAF 폴더 선택 결과 */
+    data class OnSplitFolderSelected(val uriString: String?) : StudioUiIntent
 }

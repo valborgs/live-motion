@@ -66,9 +66,16 @@
     <string name="dialog_reset">초기화</string>
     <string name="dialog_tracking_error_title">트래킹 에러 상세</string>
 
+    <!-- StudioScreen - Split -->
+    <string name="dialog_split_confirm_title">영상/음성 분리</string>
+    <string name="dialog_split_confirm_message">영상과 음성을 분리하여 저장하시겠습니까?</string>
+    <string name="dialog_split_progress_title">영상/음성 분리 중…</string>
+
     <!-- Common -->
     <string name="button_confirm">확인</string>
     <string name="button_cancel">취소</string>
     <string name="button_delete">삭제</string>
     <string name="button_close">닫기</string>
+    <string name="button_yes">예</string>
+    <string name="button_no">아니오</string>
 </resources>

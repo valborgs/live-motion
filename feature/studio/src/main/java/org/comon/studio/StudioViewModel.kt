@@ -1,13 +1,18 @@
 package org.comon.studio
 
 import android.content.Context
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import android.util.Log
+import androidx.core.net.toUri
+import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -29,6 +34,7 @@ import org.comon.live2d.LAppMinimumDelegate
 import org.comon.live2d.Live2DUiEffect
 import org.comon.storage.SelectedBackgroundStore
 import org.comon.storage.TrackingSettingsLocalDataSource
+import org.comon.studio.recording.MediaSplitter
 import org.comon.studio.recording.ModelRecorder
 import org.comon.tracking.FaceTracker
 import org.comon.tracking.FaceTrackerFactory
@@ -38,7 +44,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import javax.inject.Inject
-import androidx.core.net.toUri
 
 /**
  * Studio 화면의 상태 관리 및 비즈니스 로직을 담당하는 ViewModel.
@@ -195,6 +200,8 @@ class StudioViewModel @Inject constructor(
         data object None : DialogState()
         data object Expression : DialogState()
         data object Motion : DialogState()
+        data object SplitConfirm : DialogState()
+        data class SplitProgress(val progress: Float) : DialogState()
     }
 
     /**
@@ -321,6 +328,11 @@ class StudioViewModel @Inject constructor(
             is StudioUiIntent.OnAudioPermissionResult -> onAudioPermissionResult(intent.granted)
             is StudioUiIntent.OnSaveLocationSelected -> onSaveLocationSelected(intent.uriString)
             is StudioUiIntent.OnSurfaceSizeAvailable -> onSurfaceSizeAvailable(intent.width, intent.height)
+            // 영상/음성 분리 관련
+            is StudioUiIntent.ConfirmSplit -> confirmSplit()
+            is StudioUiIntent.DeclineSplit -> declineSplit()
+            is StudioUiIntent.CancelSplit -> cancelSplit()
+            is StudioUiIntent.OnSplitFolderSelected -> onSplitFolderSelected(intent.uriString)
         }
     }
 
@@ -387,6 +399,12 @@ class StudioViewModel @Inject constructor(
     private var glSurfaceHeight: Int = 0
     private var pendingAudioPermissionGranted: Boolean = false
     private var pendingTempFile: File? = null
+
+    // 영상/음성 분리 관련
+    private var mediaSplitter: MediaSplitter? = null
+    private var splitJob: Job? = null
+    private var pendingSplitResult: MediaSplitter.SplitResult? = null
+    private var pendingBaseFileName: String? = null
 
     private fun toggleRecordingMode() {
         val current = _uiState.value
@@ -475,6 +493,9 @@ class StudioViewModel @Inject constructor(
     }
 
     private fun stopRecording() {
+        // 이미 IDLE이면 중복 호출 방지 (타이머와 MediaRecorder 콜백이 동시에 호출할 수 있음)
+        if (_uiState.value.recordingState == ModelRecorder.RecordingState.IDLE) return
+
         stopRecordingTimer()
 
         // UI 상태를 즉시 IDLE로 업데이트 (사용자 피드백 즉각 반영)
@@ -499,8 +520,15 @@ class StudioViewModel @Inject constructor(
             if (tempFile != null && tempFile.exists() && tempFile.length() > 0) {
                 pendingTempFile = tempFile
                 val dateFormat = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
-                val fileName = "LiveMotion_${dateFormat.format(Date())}.mp4"
-                _uiEffect.trySend(StudioUiEffect.RequestSaveLocation(fileName))
+                pendingBaseFileName = "LiveMotion_${dateFormat.format(Date())}"
+
+                if (hasAudioTrack(tempFile)) {
+                    // 오디오 트랙이 있으면 분리 확인 다이얼로그 표시
+                    _uiState.update { it.copy(dialogState = DialogState.SplitConfirm) }
+                } else {
+                    // 오디오 트랙이 없으면 기존 단일 파일 저장 플로우
+                    _uiEffect.trySend(StudioUiEffect.RequestSaveLocation("${pendingBaseFileName}.mp4"))
+                }
             } else {
                 modelRecorder.deleteTempFile()
                 _uiEffect.trySend(StudioUiEffect.ShowSnackbar("녹화 파일 생성에 실패했습니다"))
@@ -615,6 +643,153 @@ class StudioViewModel @Inject constructor(
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 영상/음성 분리
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    private fun hasAudioTrack(file: File): Boolean {
+        val extractor = MediaExtractor()
+        return try {
+            extractor.setDataSource(file.absolutePath)
+            (0 until extractor.trackCount).any { i ->
+                val mime = extractor.getTrackFormat(i).getString(MediaFormat.KEY_MIME)
+                mime?.startsWith("audio/") == true
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to check audio track", e)
+            false
+        } finally {
+            extractor.release()
+        }
+    }
+
+    private fun confirmSplit() {
+        val tempFile = pendingTempFile ?: return
+        val baseFileName = pendingBaseFileName ?: return
+
+        val splitter = MediaSplitter(appContext.cacheDir)
+        mediaSplitter = splitter
+
+        _uiState.update { it.copy(dialogState = DialogState.SplitProgress(0f)) }
+
+        splitJob = viewModelScope.launch {
+            try {
+                val result = splitter.split(
+                    sourceFile = tempFile,
+                    onProgress = { progress ->
+                        _uiState.update { it.copy(dialogState = DialogState.SplitProgress(progress)) }
+                    },
+                )
+                pendingSplitResult = result
+                _uiState.update { it.copy(dialogState = DialogState.None) }
+                _uiEffect.trySend(StudioUiEffect.RequestSplitFolderLocation(baseFileName))
+            } catch (e: CancellationException) {
+                // 사용자가 취소 → SplitConfirm 다이얼로그 재표시
+                splitter.cleanupTempFiles()
+                _uiState.update { it.copy(dialogState = DialogState.SplitConfirm) }
+            } catch (e: Exception) {
+                Log.e(TAG, "Split failed", e)
+                splitter.cleanupTempFiles()
+                _uiState.update { it.copy(dialogState = DialogState.None) }
+                _uiEffect.trySend(StudioUiEffect.ShowErrorWithDetail(
+                    displayMessage = "영상/음성 분리에 실패했습니다",
+                    detailMessage = e.localizedMessage ?: "알 수 없는 오류",
+                ))
+            }
+        }
+    }
+
+    private fun declineSplit() {
+        _uiState.update { it.copy(dialogState = DialogState.None) }
+        // 기존 단일 파일 저장 플로우
+        val fileName = "${pendingBaseFileName}.mp4"
+        _uiEffect.trySend(StudioUiEffect.RequestSaveLocation(fileName))
+    }
+
+    private fun cancelSplit() {
+        splitJob?.cancel()
+        splitJob = null
+    }
+
+    private fun onSplitFolderSelected(uriString: String?) {
+        val splitResult = pendingSplitResult
+        val baseFileName = pendingBaseFileName
+        val originalFile = pendingTempFile
+
+        if (uriString == null || splitResult == null || baseFileName == null) {
+            // 사용자가 폴더 선택을 취소
+            cleanupAllTempFiles()
+            if (uriString == null) {
+                _uiEffect.trySend(StudioUiEffect.ShowSnackbar("저장이 취소되었습니다"))
+            }
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                val treeUri = uriString.toUri()
+                val parentDir = DocumentFile.fromTreeUri(appContext, treeUri)
+                    ?: throw Exception("폴더를 열 수 없습니다")
+
+                // 날짜시간 폴더 생성
+                val folder = parentDir.createDirectory(baseFileName)
+                    ?: throw Exception("폴더를 생성할 수 없습니다")
+
+                // 원본 파일 복사
+                originalFile?.let { srcFile ->
+                    val originalDoc = folder.createFile("video/mp4", "${baseFileName}.mp4")
+                        ?: throw Exception("원본 파일을 생성할 수 없습니다")
+                    appContext.contentResolver.openOutputStream(originalDoc.uri)?.use { output ->
+                        srcFile.inputStream().use { input ->
+                            input.copyTo(output)
+                        }
+                    } ?: throw Exception("원본 출력 스트림을 열 수 없습니다")
+                }
+
+                // 영상 파일 복사
+                val videoDoc = folder.createFile("video/mp4", "${baseFileName}_video.mp4")
+                    ?: throw Exception("영상 파일을 생성할 수 없습니다")
+                appContext.contentResolver.openOutputStream(videoDoc.uri)?.use { output ->
+                    splitResult.videoFile.inputStream().use { input ->
+                        input.copyTo(output)
+                    }
+                } ?: throw Exception("영상 출력 스트림을 열 수 없습니다")
+
+                // 음성 파일 복사
+                splitResult.audioFile?.let { audioFile ->
+                    val audioDoc = folder.createFile("audio/mp4", "${baseFileName}_audio.m4a")
+                        ?: throw Exception("음성 파일을 생성할 수 없습니다")
+                    appContext.contentResolver.openOutputStream(audioDoc.uri)?.use { output ->
+                        audioFile.inputStream().use { input ->
+                            input.copyTo(output)
+                        }
+                    } ?: throw Exception("음성 출력 스트림을 열 수 없습니다")
+                }
+
+                // 성공 시 모든 임시 파일 정리
+                cleanupAllTempFiles()
+                _uiEffect.trySend(StudioUiEffect.SplitSaved("영상/음성이 분리 저장되었습니다"))
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save split files", e)
+                _uiEffect.trySend(StudioUiEffect.ShowErrorWithDetail(
+                    displayMessage = "분리 파일 저장에 실패했습니다",
+                    detailMessage = e.localizedMessage ?: "알 수 없는 오류",
+                ))
+                // 임시 파일 유지 (재시도 가능)
+            }
+        }
+    }
+
+    private fun cleanupAllTempFiles() {
+        pendingTempFile?.delete()
+        pendingTempFile = null
+        mediaSplitter?.cleanupTempFiles()
+        mediaSplitter = null
+        pendingSplitResult = null
+        pendingBaseFileName = null
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Cleanup
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     override fun onCleared() {
@@ -627,6 +802,10 @@ class StudioViewModel @Inject constructor(
         modelRecorder.release()
         modelRecorder.deleteTempFile()
         pendingTempFile?.delete()
+
+        // 분리 관련 정리
+        splitJob?.cancel()
+        mediaSplitter?.cleanupTempFiles()
 
         faceTracker?.stop()
         faceTracker = null

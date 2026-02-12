@@ -34,6 +34,8 @@ import org.comon.domain.model.ModelSource
 import org.comon.live2d.Live2DScreen
 import org.comon.studio.components.FileListDialog
 import org.comon.studio.components.RecordingOverlay
+import org.comon.studio.components.SplitConfirmDialog
+import org.comon.studio.components.SplitProgressDialog
 import org.comon.studio.components.StudioIconButton
 import org.comon.studio.components.StudioToggleButton
 import org.comon.ui.snackbar.ErrorDetailDialog
@@ -69,6 +71,13 @@ fun StudioScreen(
         ActivityResultContracts.CreateDocument("video/mp4")
     ) { uri ->
         viewModel.onIntent(StudioUiIntent.OnSaveLocationSelected(uri?.toString()))
+    }
+
+    // ━━━━ 분리 저장: SAF 폴더 선택 런처 ━━━━
+    val splitFolderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        viewModel.onIntent(StudioUiIntent.OnSplitFolderSelected(uri?.toString()))
     }
 
     // UI Effect 처리
@@ -108,6 +117,17 @@ fun StudioScreen(
                     saveFileLauncher.launch(effect.suggestedFileName)
                 }
                 is StudioUiEffect.RecordingSaved -> {
+                    snackbarState.showSnackbar(
+                        message = effect.message,
+                        duration = SnackbarDuration.Short
+                    )
+                }
+
+                // ━━━━ 분리 저장 관련 Effect ━━━━
+                is StudioUiEffect.RequestSplitFolderLocation -> {
+                    splitFolderLauncher.launch(null)
+                }
+                is StudioUiEffect.SplitSaved -> {
                     snackbarState.showSnackbar(
                         message = effect.message,
                         duration = SnackbarDuration.Short
@@ -481,6 +501,18 @@ private fun StudioScreenContent(
             )
         }
         StudioViewModel.DialogState.None -> { /* No dialog */ }
+        is StudioViewModel.DialogState.SplitConfirm -> {
+            SplitConfirmDialog(
+                onConfirm = { onIntent(StudioUiIntent.ConfirmSplit) },
+                onDecline = { onIntent(StudioUiIntent.DeclineSplit) },
+            )
+        }
+        is StudioViewModel.DialogState.SplitProgress -> {
+            SplitProgressDialog(
+                progress = uiState.dialogState.progress,
+                onCancel = { onIntent(StudioUiIntent.CancelSplit) },
+            )
+        }
     }
 
     // 트래킹 에러 상세 다이얼로그

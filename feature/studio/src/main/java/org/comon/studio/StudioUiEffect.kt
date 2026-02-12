@@ -35,4 +35,12 @@ sealed class StudioUiEffect {
 
     /** 녹화 파일 저장 완료 */
     data class RecordingSaved(val message: String) : StudioUiEffect()
+
+    // ━━━━━━ 영상/음성 분리 관련 ━━━━━━
+
+    /** SAF OpenDocumentTree 요청 (분리 파일 저장 폴더 선택) */
+    data class RequestSplitFolderLocation(val suggestedFolderName: String) : StudioUiEffect()
+
+    /** 분리 저장 완료 */
+    data class SplitSaved(val message: String) : StudioUiEffect()
 }

@@ -74,6 +74,9 @@ dependencies {
     // MediaPipe (for NormalizedLandmark)
     implementation(libs.mediapipe.tasks.vision)
     
+    // DocumentFile (분리 저장 폴더 생성)
+    implementation(libs.androidx.documentfile)
+
     // Coil
     implementation(libs.coil.compose)
 

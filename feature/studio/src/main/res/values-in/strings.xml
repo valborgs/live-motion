@@ -66,9 +66,16 @@
     <string name="dialog_reset">Reset</string>
     <string name="dialog_tracking_error_title">Detail Error Pelacakan</string>
 
+    <!-- StudioScreen - Split -->
+    <string name="dialog_split_confirm_title">Pisahkan Video/Audio</string>
+    <string name="dialog_split_confirm_message">Apakah Anda ingin menyimpan video dan audio secara terpisah?</string>
+    <string name="dialog_split_progress_title">Memisahkan video/audio…</string>
+
     <!-- Common -->
     <string name="button_confirm">OK</string>
     <string name="button_cancel">Batal</string>
     <string name="button_delete">Hapus</string>
     <string name="button_close">Tutup</string>
+    <string name="button_yes">Ya</string>
+    <string name="button_no">Tidak</string>
 </resources>
