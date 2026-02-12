@@ -14,10 +14,10 @@ import java.nio.ByteOrder;
  * GL 프레임버퍼를 읽어 MediaRecorder의 Surface로 전달하는 유틸리티.
  *
  * <p>{@code glReadPixels}를 사용하여 현재 GL 프레임버퍼 내용을 읽고,
- * {@link Surface#lockHardwareCanvas()}를 통해 인코더 Surface에 그립니다.</p>
+ * {@link Surface#lockCanvas(android.graphics.Rect)}를 통해 인코더 Surface에 그립니다.</p>
  *
- * <p>EGL 컨텍스트 공유 방식 대비 GPU-CPU 왕복이 발생하지만,
- * 모든 디바이스에서 안정적으로 동작합니다.</p>
+ * <p>소프트웨어 캔버스를 사용하여 HWUI RenderThread와의 충돌을 방지합니다.
+ * 이미 CPU에 있는 픽셀 데이터를 그리므로 하드웨어 캔버스가 불필요합니다.</p>
  *
  * <p>모든 메서드는 GL 스레드에서 호출해야 합니다.</p>
  */
@@ -89,8 +89,8 @@ public class EglRecordHelper {
             pixelBuffer.rewind();
             bitmap.copyPixelsFromBuffer(pixelBuffer);
 
-            // 3) MediaRecorder Surface에 그리기 (수직 반전 포함)
-            Canvas canvas = recordingSurface.lockHardwareCanvas();
+            // 3) MediaRecorder Surface에 그리기 (소프트웨어 캔버스, 수직 반전 포함)
+            Canvas canvas = recordingSurface.lockCanvas(null);
             try {
                 canvas.drawBitmap(bitmap, flipMatrix, null);
             } finally {

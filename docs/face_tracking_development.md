@@ -5158,3 +5158,136 @@ SAF `OpenDocumentTree`로 선택한 트리 URI에서 `DocumentFile.fromTreeUri()
 | `feature/studio/src/main/res/values-zh-rCN/strings.xml` | 중국어 간체 번역 추가 |
 | `feature/studio/src/main/res/values-zh-rTW/strings.xml` | 중국어 번체 번역 추가 |
 | `feature/studio/src/main/res/values-in/strings.xml` | 인도네시아어 번역 추가 |
+
+## 46. 녹화 중 앱 크래시 및 저장 시 ANR 수정 (2026-02-12 업데이트)
+
+### 개요
+
+녹화 기능 구현 후 두 가지 런타임 문제가 발생했다:
+1. **녹화 중 네이티브 크래시** — 녹화 시작 후 수분 내에 `SkiaOpenGLPipeline::getFrame` 에러로 앱이 강제 종료
+2. **저장 시 ANR** — 녹화 정지 후 저장 다이얼로그에서 10초 이상 메인 스레드가 블로킹되어 ANR 발생
+
+### 문제 1: lockHardwareCanvas로 인한 EGL 컨텍스트 충돌
+
+#### 증상
+
+녹화 시작 후 5분 이내에 RenderThread에서 네이티브 크래시가 발생:
+
+```
+Fatal signal 11 (SIGSEGV), code 1 (SEGV_MAPERR)
+  ...
+  #1  SkiaOpenGLPipeline::getFrame(...)
+  #2  RenderProxy::syncAndDrawFrame()
+```
+
+#### 원인 분석
+
+`EglRecordHelper.onFrameAvailable()`에서 `lockHardwareCanvas()`를 사용하고 있었다. 이 메서드는 HWUI RenderThread의 GPU 렌더링 파이프라인을 트리거하는데, GLSurfaceView의 GL 스레드에서 호출되면 두 EGL 컨텍스트(GLSurfaceView GL 컨텍스트 vs HWUI RenderThread 컨텍스트)가 동일 프로세스 내에서 충돌한다.
+
+데이터 흐름을 정리하면:
+
+```
+glReadPixels (GPU → CPU) → Bitmap → lockHardwareCanvas (CPU → GPU → Surface)
+                                      ↑ HWUI RenderThread 활성화
+                                      ↑ EGL 컨텍스트 충돌 원인
+```
+
+`glReadPixels`로 이미 CPU 메모리에 있는 픽셀 데이터를 다시 GPU로 보내는 불필요한 GPU→CPU→GPU 왕복이 발생하며, 시간이 지남에 따라 GPU 리소스가 점진적으로 고갈되어 크래시에 이른다.
+
+#### 수정
+
+`lockHardwareCanvas()` → `lockCanvas(null)` (소프트웨어 캔버스)로 변경:
+
+```java
+// EglRecordHelper.java — onFrameAvailable()
+
+// BEFORE: HWUI RenderThread를 트리거하여 EGL 컨텍스트 충돌
+Canvas canvas = recordingSurface.lockHardwareCanvas();
+
+// AFTER: 소프트웨어 캔버스로 직접 기록, HWUI 개입 없음
+Canvas canvas = recordingSurface.lockCanvas(null);
+```
+
+이미 CPU에 있는 Bitmap 데이터를 그리므로 하드웨어 캔버스가 불필요하고, 소프트웨어 캔버스가 오히려 적합하다.
+
+### 문제 2: 메인 스레드 I/O 블로킹으로 인한 ANR
+
+#### 증상
+
+녹화 정지 후 저장 다이얼로그 시점에서 ANR 발생:
+
+```
+Input dispatching timed out (10000ms)
+  ... CPU usage: 176% (app), media.swcodec 68%
+  ... 2,087,811 minor page faults
+```
+
+#### 원인 분석
+
+`viewModelScope.launch`는 기본적으로 `Dispatchers.Main`에서 실행된다. 녹화 관련 모든 I/O 작업이 메인 스레드에서 동기적으로 수행되고 있었다:
+
+| 함수 | 블로킹 작업 |
+|------|------------|
+| `stopRecording()` | `modelRecorder.stop()`, `release()`, `hasAudioTrack()` — MediaRecorder/MediaExtractor 파일 I/O |
+| `onSaveLocationSelected()` | `ContentResolver.openOutputStream()` + `copyTo()` — 대용량 파일 복사 |
+| `confirmSplit()` | `MediaSplitter.split()` — MediaExtractor/MediaMuxer 트랙 추출 |
+| `onSplitFolderSelected()` | `DocumentFile` 폴더 생성 + 3개 파일 복사 (원본 + 영상 + 음성) |
+
+#### 수정
+
+모든 I/O 작업을 `withContext(Dispatchers.IO)`로 래핑:
+
+```kotlin
+// stopRecording() — MediaRecorder 정지 및 오디오 트랙 감지
+val tempFile = withContext(Dispatchers.IO) {
+    val file = modelRecorder.stop()
+    modelRecorder.release()
+    file
+}
+val hasAudio = withContext(Dispatchers.IO) { hasAudioTrack(tempFile) }
+
+// onSaveLocationSelected() — 파일 복사
+withContext(Dispatchers.IO) {
+    appContext.contentResolver.openOutputStream(uri)?.use { output ->
+        tempFile.inputStream().use { input -> input.copyTo(output) }
+    }
+    tempFile.delete()
+}
+
+// confirmSplit() — 트랙 분리
+val result = withContext(Dispatchers.IO) {
+    splitter.split(tempFile) { progress -> /* UI 업데이트 */ }
+}
+
+// onSplitFolderSelected() — 폴더 생성 + 파일 3개 복사
+withContext(Dispatchers.IO) {
+    val parentDir = DocumentFile.fromTreeUri(appContext, treeUri)
+    val folder = parentDir?.createDirectory(folderName)
+    // 원본, 영상, 음성 파일 각각 복사
+}
+```
+
+### 추가 수정: 5분 최대 녹화 시간 도달 시 중복 호출 방지
+
+녹화 타이머(5분)와 MediaRecorder의 `setMaxDuration` 콜백이 동시에 `stopRecording()`을 호출할 수 있어 크래시가 발생했다. 함수 진입 시 IDLE 상태 가드를 추가:
+
+```kotlin
+private fun stopRecording() {
+    // 이미 IDLE이면 중복 호출 방지 (타이머와 MediaRecorder 콜백이 동시에 호출할 수 있음)
+    if (_uiState.value.recordingState == ModelRecorder.RecordingState.IDLE) return
+    // ...
+}
+```
+
+### 핵심 교훈
+
+1. **GL 스레드에서 `lockHardwareCanvas()` 사용 금지** — HWUI RenderThread의 EGL 컨텍스트와 GLSurfaceView의 GL 컨텍스트가 충돌한다. `glReadPixels`로 이미 CPU에 있는 데이터는 `lockCanvas(null)` (소프트웨어 캔버스)로 전달해야 한다.
+2. **`viewModelScope.launch`의 기본 디스패처는 Main** — 파일 I/O, MediaRecorder/MediaExtractor 작업, ContentResolver 스트림 복사 등은 반드시 `withContext(Dispatchers.IO)`로 감싸야 ANR을 방지할 수 있다.
+3. **비동기 콜백과 타이머의 경합 조건** — 동일 함수가 여러 경로에서 호출될 수 있으면 상태 가드로 중복 실행을 방지해야 한다.
+
+### 관련 파일
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `core/live2d/.../EglRecordHelper.java` | `lockHardwareCanvas()` → `lockCanvas(null)` 변경, Javadoc 소프트웨어 캔버스 설명 추가 |
+| `feature/studio/.../StudioViewModel.kt` | `Dispatchers`/`withContext` import 추가, `stopRecording()`에 IDLE 가드 추가, 4개 함수의 I/O 작업을 `withContext(Dispatchers.IO)`로 래핑 |

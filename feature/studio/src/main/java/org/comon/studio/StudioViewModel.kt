@@ -13,6 +13,7 @@ import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -22,6 +23,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.comon.domain.model.BackgroundSource
 import org.comon.domain.model.FacePose
 import org.comon.domain.model.FacePoseSmoothingState
@@ -516,13 +518,19 @@ class StudioViewModel @Inject constructor(
             // (채널 수신 → Compose collect → queueEvent → GL 스레드 처리)
             delay(300)
 
-            val tempFile = modelRecorder.stop()
+            val tempFile = withContext(Dispatchers.IO) {
+                val file = modelRecorder.stop()
+                modelRecorder.release()
+                file
+            }
+
             if (tempFile != null && tempFile.exists() && tempFile.length() > 0) {
                 pendingTempFile = tempFile
                 val dateFormat = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
                 pendingBaseFileName = "LiveMotion_${dateFormat.format(Date())}"
 
-                if (hasAudioTrack(tempFile)) {
+                val hasAudio = withContext(Dispatchers.IO) { hasAudioTrack(tempFile) }
+                if (hasAudio) {
                     // 오디오 트랙이 있으면 분리 확인 다이얼로그 표시
                     _uiState.update { it.copy(dialogState = DialogState.SplitConfirm) }
                 } else {
@@ -530,11 +538,9 @@ class StudioViewModel @Inject constructor(
                     _uiEffect.trySend(StudioUiEffect.RequestSaveLocation("${pendingBaseFileName}.mp4"))
                 }
             } else {
-                modelRecorder.deleteTempFile()
+                withContext(Dispatchers.IO) { modelRecorder.deleteTempFile() }
                 _uiEffect.trySend(StudioUiEffect.ShowSnackbar("녹화 파일 생성에 실패했습니다"))
             }
-
-            modelRecorder.release()
         }
     }
 
@@ -594,15 +600,17 @@ class StudioViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
-                val uri = uriString.toUri()
-                appContext.contentResolver.openOutputStream(uri)?.use { output ->
-                    tempFile.inputStream().use { input ->
-                        input.copyTo(output)
-                    }
-                } ?: throw Exception("출력 스트림을 열 수 없습니다")
+                withContext(Dispatchers.IO) {
+                    val uri = uriString.toUri()
+                    appContext.contentResolver.openOutputStream(uri)?.use { output ->
+                        tempFile.inputStream().use { input ->
+                            input.copyTo(output)
+                        }
+                    } ?: throw Exception("출력 스트림을 열 수 없습니다")
 
-                // 성공 시 임시 파일 삭제
-                tempFile.delete()
+                    // 성공 시 임시 파일 삭제
+                    tempFile.delete()
+                }
                 pendingTempFile = null
                 _uiEffect.trySend(StudioUiEffect.RecordingSaved("녹화 파일이 저장되었습니다"))
             } catch (e: Exception) {
@@ -673,22 +681,24 @@ class StudioViewModel @Inject constructor(
 
         splitJob = viewModelScope.launch {
             try {
-                val result = splitter.split(
-                    sourceFile = tempFile,
-                    onProgress = { progress ->
-                        _uiState.update { it.copy(dialogState = DialogState.SplitProgress(progress)) }
-                    },
-                )
+                val result = withContext(Dispatchers.IO) {
+                    splitter.split(
+                        sourceFile = tempFile,
+                        onProgress = { progress ->
+                            _uiState.update { it.copy(dialogState = DialogState.SplitProgress(progress)) }
+                        },
+                    )
+                }
                 pendingSplitResult = result
                 _uiState.update { it.copy(dialogState = DialogState.None) }
                 _uiEffect.trySend(StudioUiEffect.RequestSplitFolderLocation(baseFileName))
             } catch (e: CancellationException) {
                 // 사용자가 취소 → SplitConfirm 다이얼로그 재표시
-                splitter.cleanupTempFiles()
+                withContext(Dispatchers.IO) { splitter.cleanupTempFiles() }
                 _uiState.update { it.copy(dialogState = DialogState.SplitConfirm) }
             } catch (e: Exception) {
                 Log.e(TAG, "Split failed", e)
-                splitter.cleanupTempFiles()
+                withContext(Dispatchers.IO) { splitter.cleanupTempFiles() }
                 _uiState.update { it.copy(dialogState = DialogState.None) }
                 _uiEffect.trySend(StudioUiEffect.ShowErrorWithDetail(
                     displayMessage = "영상/음성 분리에 실패했습니다",
@@ -726,47 +736,49 @@ class StudioViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
-                val treeUri = uriString.toUri()
-                val parentDir = DocumentFile.fromTreeUri(appContext, treeUri)
-                    ?: throw Exception("폴더를 열 수 없습니다")
+                withContext(Dispatchers.IO) {
+                    val treeUri = uriString.toUri()
+                    val parentDir = DocumentFile.fromTreeUri(appContext, treeUri)
+                        ?: throw Exception("폴더를 열 수 없습니다")
 
-                // 날짜시간 폴더 생성
-                val folder = parentDir.createDirectory(baseFileName)
-                    ?: throw Exception("폴더를 생성할 수 없습니다")
+                    // 날짜시간 폴더 생성
+                    val folder = parentDir.createDirectory(baseFileName)
+                        ?: throw Exception("폴더를 생성할 수 없습니다")
 
-                // 원본 파일 복사
-                originalFile?.let { srcFile ->
-                    val originalDoc = folder.createFile("video/mp4", "${baseFileName}.mp4")
-                        ?: throw Exception("원본 파일을 생성할 수 없습니다")
-                    appContext.contentResolver.openOutputStream(originalDoc.uri)?.use { output ->
-                        srcFile.inputStream().use { input ->
-                            input.copyTo(output)
-                        }
-                    } ?: throw Exception("원본 출력 스트림을 열 수 없습니다")
-                }
-
-                // 영상 파일 복사
-                val videoDoc = folder.createFile("video/mp4", "${baseFileName}_video.mp4")
-                    ?: throw Exception("영상 파일을 생성할 수 없습니다")
-                appContext.contentResolver.openOutputStream(videoDoc.uri)?.use { output ->
-                    splitResult.videoFile.inputStream().use { input ->
-                        input.copyTo(output)
+                    // 원본 파일 복사
+                    originalFile?.let { srcFile ->
+                        val originalDoc = folder.createFile("video/mp4", "${baseFileName}.mp4")
+                            ?: throw Exception("원본 파일을 생성할 수 없습니다")
+                        appContext.contentResolver.openOutputStream(originalDoc.uri)?.use { output ->
+                            srcFile.inputStream().use { input ->
+                                input.copyTo(output)
+                            }
+                        } ?: throw Exception("원본 출력 스트림을 열 수 없습니다")
                     }
-                } ?: throw Exception("영상 출력 스트림을 열 수 없습니다")
 
-                // 음성 파일 복사
-                splitResult.audioFile?.let { audioFile ->
-                    val audioDoc = folder.createFile("audio/mp4", "${baseFileName}_audio.m4a")
-                        ?: throw Exception("음성 파일을 생성할 수 없습니다")
-                    appContext.contentResolver.openOutputStream(audioDoc.uri)?.use { output ->
-                        audioFile.inputStream().use { input ->
+                    // 영상 파일 복사
+                    val videoDoc = folder.createFile("video/mp4", "${baseFileName}_video.mp4")
+                        ?: throw Exception("영상 파일을 생성할 수 없습니다")
+                    appContext.contentResolver.openOutputStream(videoDoc.uri)?.use { output ->
+                        splitResult.videoFile.inputStream().use { input ->
                             input.copyTo(output)
                         }
-                    } ?: throw Exception("음성 출력 스트림을 열 수 없습니다")
-                }
+                    } ?: throw Exception("영상 출력 스트림을 열 수 없습니다")
 
-                // 성공 시 모든 임시 파일 정리
-                cleanupAllTempFiles()
+                    // 음성 파일 복사
+                    splitResult.audioFile?.let { audioFile ->
+                        val audioDoc = folder.createFile("audio/mp4", "${baseFileName}_audio.m4a")
+                            ?: throw Exception("음성 파일을 생성할 수 없습니다")
+                        appContext.contentResolver.openOutputStream(audioDoc.uri)?.use { output ->
+                            audioFile.inputStream().use { input ->
+                                input.copyTo(output)
+                            }
+                        } ?: throw Exception("음성 출력 스트림을 열 수 없습니다")
+                    }
+
+                    // 성공 시 모든 임시 파일 정리
+                    cleanupAllTempFiles()
+                }
                 _uiEffect.trySend(StudioUiEffect.SplitSaved("영상/음성이 분리 저장되었습니다"))
 
             } catch (e: Exception) {
