@@ -4695,3 +4695,61 @@ public void onSurfaceChanged(int width, int height) {
 | 파일 | 변경 내용 |
 |------|----------|
 | `core/live2d/.../LAppMinimumDelegate.java` | `onSurfaceChanged()`에서 `backgroundSprite.resize()` 호출 추가 |
+
+## 43. 모델/배경 리스트 정렬 순서 변경 (2026-02-12 업데이트)
+
+### 변경 사항
+
+모델 선택 및 배경 선택 화면에서 리스트 출력 순서를 변경하여 사용자가 가져온 외부 모델/배경이 상단에 먼저 표시되도록 개선.
+
+#### 변경 전
+
+| 화면 | 정렬 순서 |
+|------|----------|
+| 모델 선택 | Asset 모델 → External 모델 |
+| 배경 선택 | Default → Asset 배경 → External 배경 |
+
+#### 변경 후
+
+| 화면 | 정렬 순서 |
+|------|----------|
+| 모델 선택 | External 모델 → Asset 모델 |
+| 배경 선택 | Default → External 배경 → Asset 배경 |
+
+### 수정 내용
+
+두 UseCase에서 리스트를 합치는(combine) 순서를 변경:
+
+**`GetAllModelsUseCase`**
+
+```kotlin
+// Before
+val combined = assetModels.map { ModelSource.Asset(it) } +
+    externalModels.map { ModelSource.External(it) }
+
+// After
+val combined = externalModels.map { ModelSource.External(it) } +
+    assetModels.map { ModelSource.Asset(it) }
+```
+
+**`GetAllBackgroundsUseCase`**
+
+```kotlin
+// Before
+val combined = listOf(BackgroundSource.Default) +
+    assetBackgrounds.map { BackgroundSource.Asset(it) } +
+    externalBackgrounds.map { BackgroundSource.External(it) }
+
+// After
+val combined = listOf(BackgroundSource.Default) +
+    externalBackgrounds.map { BackgroundSource.External(it) } +
+    assetBackgrounds.map { BackgroundSource.Asset(it) }
+```
+
+### 관련 파일
+
+**수정됨**
+| 파일 | 변경 내용 |
+|------|----------|
+| `domain/.../GetAllModelsUseCase.kt` | External 모델을 Asset 모델보다 먼저 합치도록 순서 변경 |
+| `domain/.../GetAllBackgroundsUseCase.kt` | External 배경을 Asset 배경보다 먼저 합치도록 순서 변경 (Default는 최상단 유지) |

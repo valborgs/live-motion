@@ -20,8 +20,8 @@ class GetAllModelsUseCase(
         val assetModels = modelRepository.listLive2DModels().getOrNull() ?: emptyList()
         val externalModels = externalModelRepository.listExternalModels().getOrNull() ?: emptyList()
 
-        val combined = assetModels.map { ModelSource.Asset(it) } +
-            externalModels.map { ModelSource.External(it) }
+        val combined = externalModels.map { ModelSource.External(it) } +
+            assetModels.map { ModelSource.Asset(it) }
 
         return Result.success(combined)
     }

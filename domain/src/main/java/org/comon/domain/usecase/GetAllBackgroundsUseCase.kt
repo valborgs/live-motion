@@ -12,8 +12,8 @@ class GetAllBackgroundsUseCase(
         val externalBackgrounds = backgroundRepository.listExternalBackgrounds().getOrNull() ?: emptyList()
 
         val combined = listOf(BackgroundSource.Default) +
-            assetBackgrounds.map { BackgroundSource.Asset(it) } +
-            externalBackgrounds.map { BackgroundSource.External(it) }
+            externalBackgrounds.map { BackgroundSource.External(it) } +
+            assetBackgrounds.map { BackgroundSource.Asset(it) }
 
         return Result.success(combined)
     }
