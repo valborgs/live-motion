@@ -1,11 +1,13 @@
 package org.comon.studio
 
+import android.content.res.Configuration
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -13,6 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
@@ -112,185 +115,255 @@ private fun StudioScreenContent(
     onIntent: (StudioUiIntent) -> Unit,
     modelViewContent: @Composable () -> Unit = {},
 ) {
+    val isLandscape =
+        LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+
     Box(modifier = Modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
-        // 상단 모델 뷰 영역 (8)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(0.8f)
-        ) {
-            modelViewContent()
-
-            // 모델 로딩 오버레이
-            if (uiState.isModelLoading) {
+        if (isLandscape) {
+            // === Landscape 레이아웃: 70/30 수평 분할 ===
+            Row(modifier = Modifier.fillMaxSize()) {
+                // 왼쪽: 모델 뷰 영역 (70%)
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.7f)),
-                    contentAlignment = Alignment.Center
+                        .weight(0.7f)
+                        .fillMaxHeight()
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = Color.White)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            stringResource(R.string.studio_model_loading),
-                            color = Color.White,
-                            textAlign = TextAlign.Center,
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                    }
-                }
-            }
-
-            // 캘리브레이션 오버레이
-            if (!uiState.isModelLoading && uiState.isCalibrating) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.5f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator(color = Color.White)
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            stringResource(R.string.studio_calibrating),
-                            color = Color.White,
-                            textAlign = TextAlign.Center,
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                    }
-                }
-            }
-        }
-
-        // 하단 설정 영역 (2)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(0.2f)
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.95f),
-                            MaterialTheme.colorScheme.surfaceContainer
-                        )
+                    modelViewContent()
+                    ModelLoadingOverlay(uiState.isModelLoading)
+                    CalibrationOverlay(
+                        visible = !uiState.isModelLoading && uiState.isCalibrating
                     )
-                )
-                .navigationBarsPadding()
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // 버튼 레이아웃 영역 (프리뷰 제외 남은 공간)
+                }
+
+                // 오른쪽: 설정 패널 (30%)
                 Column(
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically)
+                        .weight(0.3f)
+                        .fillMaxHeight()
+                        .background(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.95f),
+                                    MaterialTheme.colorScheme.surfaceContainer
+                                )
+                            )
+                        )
+                        .navigationBarsPadding()
+                        .systemBarsPadding()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    // 1열: 뒤로가기, 감정, 모션 버튼
+                    // 버튼 영역: 2열 배치
                     Row(
-                        modifier = Modifier
-                            .horizontalScroll(rememberScrollState())
-                            .fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        StudioIconButton(
-                            emoji = "⬅️",
-                            text = stringResource(R.string.studio_back),
-                            onClick = onBack
-                        )
-
-                        if (uiState.expressionsFolder != null) {
-                            StudioIconButton(
-                                emoji = "😊",
-                                text = stringResource(R.string.studio_expression),
-                                onClick = { onIntent(StudioUiIntent.ShowExpressionDialog) },
-                                accentColor = MaterialTheme.colorScheme.primary
-                            )
-                        }
-
-                        if (uiState.motionsFolder != null) {
-                            StudioIconButton(
-                                emoji = "🎬",
-                                text = stringResource(R.string.studio_motion),
-                                onClick = { onIntent(StudioUiIntent.ShowMotionDialog) },
-                                accentColor = MaterialTheme.colorScheme.secondary
-                            )
-                        }
-                    }
-
-                    // 2열: 토글 버튼들
-                    Row(
-                        modifier = Modifier
-                            .horizontalScroll(rememberScrollState())
-                            .fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        StudioToggleButton(
-                            text = if (uiState.isGpuEnabled) stringResource(R.string.studio_gpu) else stringResource(R.string.studio_cpu),
-                            emoji = if (uiState.isGpuEnabled) "🚀" else "💻",
-                            checked = uiState.isGpuEnabled,
-                            onCheckedChange = { onIntent(StudioUiIntent.SetGpuEnabled(it)) },
-                            activeColor = MaterialTheme.colorScheme.primary
-                        )
-                        StudioToggleButton(
-                            text = stringResource(R.string.studio_gesture),
-                            emoji = "✋",
-                            checked = uiState.isGestureEnabled,
-                            onCheckedChange = { onIntent(StudioUiIntent.ToggleGesture) },
-                            activeColor = MaterialTheme.colorScheme.secondary
-                        )
-                        StudioIconButton(
-                            emoji = "🔄",
-                            text = stringResource(R.string.studio_reset),
-                            onClick = { onIntent(StudioUiIntent.ResetTransform) }
-                        )
-                        StudioToggleButton(
-                            text = stringResource(R.string.studio_preview),
-                            emoji = "📷",
-                            checked = uiState.isPreviewVisible,
-                            onCheckedChange = { onIntent(StudioUiIntent.TogglePreview) },
-                            activeColor = MaterialTheme.colorScheme.tertiary
-                        )
-                    }
-                }
-
-                // 프리뷰 영역 (고정 크기)
-                if (uiState.isPreviewVisible) {
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Box(
-                        modifier = Modifier
-                            .size(100.dp, 130.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.Black)
-                    ) {
-                        Canvas(
-                            modifier = Modifier.fillMaxSize()
+                        // 왼쪽 열: 뒤로가기, 감정, 모션
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            val canvasWidth = size.width
-                            val canvasHeight = size.height
-
-                            landmarks.forEach { landmark ->
-                                val x = (1.0f - landmark.x()) * canvasWidth
-                                val y = landmark.y() * canvasHeight
-                                drawCircle(
-                                    color = Color.Cyan,
-                                    radius = 2f,
-                                    center = androidx.compose.ui.geometry.Offset(x, y),
-                                    alpha = 0.8f
+                            StudioIconButton(
+                                emoji = "⬅️",
+                                text = stringResource(R.string.studio_back),
+                                onClick = onBack,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            if (uiState.expressionsFolder != null) {
+                                StudioIconButton(
+                                    emoji = "😊",
+                                    text = stringResource(R.string.studio_expression),
+                                    onClick = { onIntent(StudioUiIntent.ShowExpressionDialog) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    accentColor = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            if (uiState.motionsFolder != null) {
+                                StudioIconButton(
+                                    emoji = "🎬",
+                                    text = stringResource(R.string.studio_motion),
+                                    onClick = { onIntent(StudioUiIntent.ShowMotionDialog) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    accentColor = MaterialTheme.colorScheme.secondary
                                 )
                             }
                         }
+
+                        // 오른쪽 열: GPU/CPU, 제스처, 리셋, 프리뷰
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            StudioToggleButton(
+                                text = if (uiState.isGpuEnabled) stringResource(R.string.studio_gpu) else stringResource(R.string.studio_cpu),
+                                emoji = if (uiState.isGpuEnabled) "🚀" else "💻",
+                                checked = uiState.isGpuEnabled,
+                                activeColor = MaterialTheme.colorScheme.primary,
+                                onCheckedChange = { onIntent(StudioUiIntent.SetGpuEnabled(it)) },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            StudioToggleButton(
+                                text = stringResource(R.string.studio_gesture),
+                                emoji = "✋",
+                                checked = uiState.isGestureEnabled,
+                                activeColor = MaterialTheme.colorScheme.secondary,
+                                onCheckedChange = { onIntent(StudioUiIntent.ToggleGesture) },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            StudioIconButton(
+                                text = stringResource(R.string.studio_reset),
+                                emoji = "🔄",
+                                onClick = { onIntent(StudioUiIntent.ResetTransform) },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            StudioToggleButton(
+                                text = stringResource(R.string.studio_preview),
+                                emoji = "📷",
+                                checked = uiState.isPreviewVisible,
+                                activeColor = MaterialTheme.colorScheme.tertiary,
+                                onCheckedChange = { onIntent(StudioUiIntent.TogglePreview) },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+
+                    // 랜드마크 프리뷰 (하단 중앙)
+                    if (uiState.isPreviewVisible) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LandmarkPreviewCanvas(
+                            landmarks = landmarks,
+                            modifier = Modifier.size(100.dp, 130.dp)
+                        )
                     }
                 }
             }
-        }
+        } else {
+            // === Portrait 레이아웃: 기존 80/20 수직 분할 ===
+            Column(modifier = Modifier.fillMaxSize()) {
+                // 상단 모델 뷰 영역 (80%)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(0.8f)
+                ) {
+                    modelViewContent()
+                    ModelLoadingOverlay(uiState.isModelLoading)
+                    CalibrationOverlay(
+                        visible = !uiState.isModelLoading && uiState.isCalibrating
+                    )
+                }
+
+                // 하단 설정 영역 (20%)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(0.2f)
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.95f),
+                                    MaterialTheme.colorScheme.surfaceContainer
+                                )
+                            )
+                        )
+                        .navigationBarsPadding()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                            verticalArrangement = Arrangement.spacedBy(
+                                8.dp,
+                                Alignment.CenterVertically
+                            )
+                        ) {
+                            // 1열: 뒤로가기, 감정, 모션 버튼
+                            Row(
+                                modifier = Modifier
+                                    .horizontalScroll(rememberScrollState())
+                                    .fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                StudioIconButton(
+                                    emoji = "⬅️",
+                                    text = stringResource(R.string.studio_back),
+                                    onClick = onBack
+                                )
+                                if (uiState.expressionsFolder != null) {
+                                    StudioIconButton(
+                                        emoji = "😊",
+                                        text = stringResource(R.string.studio_expression),
+                                        onClick = { onIntent(StudioUiIntent.ShowExpressionDialog) },
+                                        accentColor = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                if (uiState.motionsFolder != null) {
+                                    StudioIconButton(
+                                        emoji = "🎬",
+                                        text = stringResource(R.string.studio_motion),
+                                        onClick = { onIntent(StudioUiIntent.ShowMotionDialog) },
+                                        accentColor = MaterialTheme.colorScheme.secondary
+                                    )
+                                }
+                            }
+
+                            // 2열: 토글 버튼들
+                            Row(
+                                modifier = Modifier
+                                    .horizontalScroll(rememberScrollState())
+                                    .fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                StudioToggleButton(
+                                    text = if (uiState.isGpuEnabled) stringResource(R.string.studio_gpu) else stringResource(R.string.studio_cpu),
+                                    emoji = if (uiState.isGpuEnabled) "🚀" else "💻",
+                                    checked = uiState.isGpuEnabled,
+                                    onCheckedChange = { onIntent(StudioUiIntent.SetGpuEnabled(it)) },
+                                    activeColor = MaterialTheme.colorScheme.primary
+                                )
+                                StudioToggleButton(
+                                    text = stringResource(R.string.studio_gesture),
+                                    emoji = "✋",
+                                    checked = uiState.isGestureEnabled,
+                                    onCheckedChange = { onIntent(StudioUiIntent.ToggleGesture) },
+                                    activeColor = MaterialTheme.colorScheme.secondary
+                                )
+                                StudioIconButton(
+                                    emoji = "🔄",
+                                    text = stringResource(R.string.studio_reset),
+                                    onClick = { onIntent(StudioUiIntent.ResetTransform) }
+                                )
+                                StudioToggleButton(
+                                    text = stringResource(R.string.studio_preview),
+                                    emoji = "📷",
+                                    checked = uiState.isPreviewVisible,
+                                    onCheckedChange = { onIntent(StudioUiIntent.TogglePreview) },
+                                    activeColor = MaterialTheme.colorScheme.tertiary
+                                )
+                            }
+                        }
+
+                        // 프리뷰 영역 (고정 크기)
+                        if (uiState.isPreviewVisible) {
+                            Spacer(modifier = Modifier.width(12.dp))
+                            LandmarkPreviewCanvas(
+                                landmarks = landmarks,
+                                modifier = Modifier.size(100.dp, 130.dp)
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         // 스낵바 호스트
@@ -349,12 +422,113 @@ private fun StudioScreenContent(
     }
 }
 
+// --- 추출된 private composable ---
+
+@Composable
+private fun ModelLoadingOverlay(visible: Boolean) {
+    if (!visible) return
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.7f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator(color = Color.White)
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                stringResource(R.string.studio_model_loading),
+                color = Color.White,
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.titleMedium
+            )
+        }
+    }
+}
+
+@Composable
+private fun CalibrationOverlay(visible: Boolean) {
+    if (!visible) return
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.5f)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator(color = Color.White)
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                stringResource(R.string.studio_calibrating),
+                color = Color.White,
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.titleMedium
+            )
+        }
+    }
+}
+
+@Composable
+private fun LandmarkPreviewCanvas(
+    landmarks: List<NormalizedLandmark>,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.Black)
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val canvasWidth = size.width
+            val canvasHeight = size.height
+            landmarks.forEach { landmark ->
+                val x = (1.0f - landmark.x()) * canvasWidth
+                val y = landmark.y() * canvasHeight
+                drawCircle(
+                    color = Color.Cyan,
+                    radius = 2f,
+                    center = androidx.compose.ui.geometry.Offset(x, y),
+                    alpha = 0.8f
+                )
+            }
+        }
+    }
+}
+
 @Preview
 @Composable
 private fun StudioScreenPreview() {
     LiveMotionTheme {
         StudioScreenContent(
             uiState = StudioViewModel.StudioUiState(isModelLoading = false),
+            landmarks = emptyList(),
+            snackbarState = rememberSnackbarStateHolder(),
+            onBack = {},
+            onIntent = {},
+            modelViewContent = {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.DarkGray),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("Live2D Preview", color = Color.White)
+                }
+            },
+        )
+    }
+}
+
+@Preview(widthDp = 800, heightDp = 400)
+@Composable
+private fun StudioScreenLandscapePreview() {
+    LiveMotionTheme {
+        StudioScreenContent(
+            uiState = StudioViewModel.StudioUiState(
+                isModelLoading = false,
+                expressionsFolder = "expressions",
+                motionsFolder = "motions",
+            ),
             landmarks = emptyList(),
             snackbarState = rememberSnackbarStateHolder(),
             onBack = {},

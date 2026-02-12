@@ -19,6 +19,7 @@ import org.comon.ui.snackbar.SnackbarStateHolder
 @Composable
 internal fun BackgroundSelectContent(
     modifier: Modifier = Modifier,
+    gridColumns: Int = 2,
     uiState: BackgroundSelectViewModel.UiState = BackgroundSelectViewModel.UiState(),
     snackbarState: SnackbarStateHolder? = null,
     onIntent: (BackgroundSelectUiIntent) -> Unit = {},
@@ -32,7 +33,7 @@ internal fun BackgroundSelectContent(
             )
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
+                columns = GridCells.Fixed(gridColumns),
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(16.dp),

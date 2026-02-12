@@ -25,6 +25,7 @@ import org.comon.ui.snackbar.SnackbarStateHolder
 @Composable
 internal fun ModelSelectContent(
     modifier: Modifier = Modifier,
+    gridColumns: Int = 2,
     uiState: ModelSelectViewModel.UiState,
     snackbarState: SnackbarStateHolder,
     onModelSelected: (ModelSource) -> Unit,
@@ -39,7 +40,7 @@ internal fun ModelSelectContent(
             )
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
+                columns = GridCells.Fixed(gridColumns),
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(16.dp),

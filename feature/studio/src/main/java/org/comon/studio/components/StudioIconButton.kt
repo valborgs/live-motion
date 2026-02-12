@@ -12,13 +12,15 @@ import org.comon.ui.theme.LiveMotionTheme
 
 @Composable
 internal fun StudioIconButton(
-    emoji: String,
     text: String,
+    emoji: String,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     accentColor: Color = MaterialTheme.colorScheme.surfaceVariant
 ) {
     Button(
         onClick = onClick,
+        modifier = modifier,
         colors = ButtonDefaults.buttonColors(
             containerColor = accentColor
         ),

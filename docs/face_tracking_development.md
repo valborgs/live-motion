@@ -47,6 +47,7 @@
 37. [배경 선택 기능 구현 (BackgroundSelectScreen)](#37-배경-선택-기능-구현-backgroundselectscreen-2026-02-11-업데이트)
 38. [BackgroundCard 이미지 로딩 최적화 (Coil 도입)](#38-backgroundcard-이미지-로딩-최적화-coil-도입-2026-02-11-업데이트)
 39. [Landscape 모드 페이스 트래킹 수정](#39-landscape-모드-페이스-트래킹-수정-2026-02-11-업데이트)
+40. [Landscape UI 대응](#40-landscape-ui-대응-2026-02-12-업데이트)
 
 ---
 
@@ -4398,3 +4399,92 @@ val rotatedLandmarks = rawLandmarks.map { lm ->
 |------|----------|
 | `app/src/main/AndroidManifest.xml` | MainActivity에 `configChanges="orientation\|screenSize\|screenLayout\|smallestScreenSize"` 추가하여 화면 회전 시 Activity 재생성 방지 |
 | `core/tracking/.../FaceTracker.kt` | `DisplayManager`/`Display`/`Surface` import 추가, `currentRotationDegrees` 필드 추가, `analyzeImage()`에서 매 프레임 `targetRotation` 갱신 및 `rotationDegrees` 저장, `processResult()`에서 하드코딩 회전을 `when` 분기 동적 회전으로 교체 |
+
+---
+
+## 40. Landscape UI 대응 (2026-02-12 업데이트)
+
+### 문제
+
+39번에서 landscape 모드 페이스 트래킹은 수정되었으나, UI 레이아웃이 portrait 전용이라 landscape에서 콘텐츠가 잘리거나 비효율적으로 표시됨.
+
+- **StudioScreen**: 하단 80/20 수직 분할에서 landscape 시 버튼 영역이 좁아 조작이 불편
+- **PrepareScreen**: 상단 탭이 가로 공간을 낭비하고 그리드가 2열로 좁게 표시
+
+### 해결 방법
+
+#### 방향 감지 방식
+
+`LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE` 사용. Activity 재생성 없이 `configChanges`로 처리하므로 `Configuration`이 실시간으로 업데이트됨.
+
+#### StudioScreen landscape 레이아웃 (70/30 수평 분할)
+
+portrait의 수직 80/20 분할 대신, landscape에서는 수평 70/30 분할:
+
+```
+Row (fillMaxSize)
+├── Box (weight=0.7f) — 모델 뷰
+│   ├── modelViewContent()
+│   ├── ModelLoadingOverlay (조건부)
+│   └── CalibrationOverlay (조건부)
+│
+└── Column (weight=0.3f, gradient bg) — 설정 패널
+    ├── Row (weight=1f) — 버튼 영역 (2열)
+    │   ├── Column (weight=1f, verticalScroll) — 뒤로가기, 감정, 모션
+    │   └── Column (weight=1f, verticalScroll) — GPU/CPU, 제스처, 리셋, 프리뷰
+    │
+    └── LandmarkPreviewCanvas (100x130dp, 하단 중앙) — 조건부
+```
+
+#### PrepareScreen landscape 레이아웃 (NavigationRail + 4열 그리드)
+
+portrait의 상단 TabRow 대신, landscape에서는 좌측 NavigationRail:
+
+```
+Scaffold
+├── topBar: PrepareTopBar (landscape 일반모드에서는 탭 없는 TopAppBar만)
+│
+└── Content
+    └── Row
+        ├── NavigationRail
+        │   ├── header: FAB (삭제모드 아닐 때만)
+        │   ├── NavigationRailItem: 캐릭터 (Person 아이콘)
+        │   └── NavigationRailItem: 배경 (Home 아이콘)
+        │
+        └── Content (weight=1f)
+            └── ModelSelectContent(gridColumns=4) 또는 BackgroundSelectContent(gridColumns=4)
+```
+
+#### 중복 제거를 위한 composable 추출
+
+StudioScreen에서 portrait/landscape 공통 사용을 위해 3개 private composable 추출:
+
+- **`ModelLoadingOverlay(visible)`** — 모델 로딩 중 반투명 오버레이
+- **`CalibrationOverlay(visible)`** — 캘리브레이션 중 반투명 오버레이
+- **`LandmarkPreviewCanvas(landmarks, modifier)`** — 랜드마크 프리뷰 캔버스
+
+PrepareScreen에서 TopBar 로직을 `PrepareTopBar()` private composable로 추출:
+- 모델 삭제 모드 앱바
+- 배경 삭제 모드 앱바
+- Landscape 일반 모드 (탭 없는 TopAppBar만)
+- Portrait 일반 모드 (TopAppBar + TabRow)
+
+#### gridColumns 파라미터화
+
+`ModelSelectContent`와 `BackgroundSelectContent`에 `gridColumns: Int = 2` 파라미터를 추가하여, landscape에서 `gridColumns=4`로 전달.
+
+#### 버튼 컴포넌트 modifier 지원
+
+`StudioIconButton`과 `StudioToggleButton`에 `modifier: Modifier = Modifier` 파라미터 추가. landscape 설정 패널에서 `Modifier.fillMaxWidth()`로 전달하여 Column 내 균일한 너비로 표시.
+
+### 관련 파일
+
+**수정됨**
+| 파일 | 변경 내용 |
+|------|----------|
+| `feature/studio/.../ModelSelectContent.kt` | `gridColumns: Int = 2` 파라미터 추가, `GridCells.Fixed(gridColumns)` 적용 |
+| `feature/studio/.../BackgroundSelectContent.kt` | `gridColumns: Int = 2` 파라미터 추가, `GridCells.Fixed(gridColumns)` 적용 |
+| `feature/studio/.../components/StudioIconButton.kt` | `modifier: Modifier = Modifier` 파라미터 추가, Button에 전달 |
+| `feature/studio/.../components/StudioToggleButton.kt` | `modifier: Modifier = Modifier` 파라미터 추가, Surface에 병합 |
+| `feature/studio/.../StudioScreen.kt` | `ModelLoadingOverlay`, `CalibrationOverlay`, `LandmarkPreviewCanvas` 추출, landscape 70/30 수평 분할 레이아웃 추가, landscape preview 추가 |
+| `feature/studio/.../PrepareScreen.kt` | `PrepareTopBar` 추출, landscape NavigationRail + 4열 그리드 레이아웃 추가, landscape preview 추가 |

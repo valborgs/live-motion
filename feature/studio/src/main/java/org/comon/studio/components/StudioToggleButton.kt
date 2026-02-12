@@ -16,8 +16,9 @@ internal fun StudioToggleButton(
     text: String,
     emoji: String,
     checked: Boolean,
+    activeColor: Color,
     onCheckedChange: (Boolean) -> Unit,
-    activeColor: Color
+    modifier: Modifier = Modifier,
 ) {
     val backgroundColor = if (checked) activeColor else MaterialTheme.colorScheme.surfaceVariant
 
@@ -26,7 +27,7 @@ internal fun StudioToggleButton(
         shape = RoundedCornerShape(12.dp),
         color = backgroundColor,
         shadowElevation = if (checked) 6.dp else 2.dp,
-        modifier = Modifier.height(44.dp)
+        modifier = modifier.height(44.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
