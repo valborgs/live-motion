@@ -41,4 +41,27 @@ sealed interface StudioUiIntent {
 
     /** 모델 Transform(위치/스케일) 리셋 */
     data object ResetTransform : StudioUiIntent
+
+    // ━━━━━━ 녹화 관련 ━━━━━━
+
+    /** 녹화 모드 토글 (설정 패널의 녹화 버튼) */
+    data object ToggleRecordingMode : StudioUiIntent
+
+    /** 녹화 시작 */
+    data object StartRecording : StudioUiIntent
+
+    /** 녹화 정지 */
+    data object StopRecording : StudioUiIntent
+
+    /** 녹화 일시정지/재개 토글 */
+    data object TogglePauseRecording : StudioUiIntent
+
+    /** RECORD_AUDIO 권한 결과 수신 */
+    data class OnAudioPermissionResult(val granted: Boolean) : StudioUiIntent
+
+    /** SAF 파일 저장 위치 선택 결과 */
+    data class OnSaveLocationSelected(val uriString: String?) : StudioUiIntent
+
+    /** GL Surface 크기 수신 */
+    data class OnSurfaceSizeAvailable(val width: Int, val height: Int) : StudioUiIntent
 }

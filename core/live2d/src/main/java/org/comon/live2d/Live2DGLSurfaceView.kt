@@ -4,12 +4,22 @@ import android.content.Context
 import android.opengl.GLSurfaceView
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
+import android.view.Surface
 
 class Live2DGLSurfaceView(context: Context): GLSurfaceView(context) {
 
     // 제스처 모드
     var isZoomEnabled = false
     var isMoveEnabled = false
+
+    // 렌더러 참조 (녹화용)
+    private val glRenderer = GLRendererMinimum()
+
+    /** GL Surface 너비 (녹화 해상도 결정용) */
+    val surfaceWidth: Int get() = glRenderer.recordWidth
+
+    /** GL Surface 높이 (녹화 해상도 결정용) */
+    val surfaceHeight: Int get() = glRenderer.recordHeight
 
     // 드래그 관련 변수
     private var lastTouchX = 0f
@@ -43,11 +53,24 @@ class Live2DGLSurfaceView(context: Context): GLSurfaceView(context) {
         LAppMinimumDelegate.getInstance().onStart(context as android.app.Activity)
 
         // Live2D minimum renderer
-        setRenderer(GLRendererMinimum())
+        setRenderer(glRenderer)
 
         // 계속 렌더링(테스트용)
         renderMode = RENDERMODE_CONTINUOUSLY
     }
+
+    /**
+     * 녹화용 Surface를 설정합니다.
+     * GL 스레드에서 렌더러에 전달됩니다.
+     *
+     * @param surface MediaRecorder의 입력 Surface. null이면 녹화를 중단합니다.
+     */
+    fun setRecordingSurface(surface: Surface?) {
+        queueEvent {
+            glRenderer.setRecordingSurface(surface)
+        }
+    }
+
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         // 핀치 줌 감지기에 항상 이벤트 전달 (줌 활성화 시)

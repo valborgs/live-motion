@@ -49,6 +49,9 @@
 39. [Landscape 모드 페이스 트래킹 수정](#39-landscape-모드-페이스-트래킹-수정-2026-02-11-업데이트)
 40. [Landscape UI 대응](#40-landscape-ui-대응-2026-02-12-업데이트)
 41. [화면 회전 시 Live2D 모델 소실 수정](#41-화면-회전-시-live2d-모델-소실-수정-2026-02-12-업데이트)
+42. [화면 회전 시 배경 스프라이트 rect 미갱신 수정](#42-화면-회전-시-배경-스프라이트-rect-미갱신-수정-2026-02-12-업데이트)
+43. [모델/배경 리스트 정렬 순서 변경](#43-모델배경-리스트-정렬-순서-변경-2026-02-12-업데이트)
+44. [모델 뷰 영상 녹화 기능](#44-모델-뷰-영상-녹화-기능-2026-02-12-업데이트)
 
 ---
 
@@ -4753,3 +4756,247 @@ val combined = listOf(BackgroundSource.Default) +
 |------|----------|
 | `domain/.../GetAllModelsUseCase.kt` | External 모델을 Asset 모델보다 먼저 합치도록 순서 변경 |
 | `domain/.../GetAllBackgroundsUseCase.kt` | External 배경을 Asset 배경보다 먼저 합치도록 순서 변경 (Default는 최상단 유지) |
+
+## 44. 모델 뷰 영상 녹화 기능 (2026-02-12 업데이트)
+
+### 개요
+
+StudioScreen에서 Live2D 모델 뷰 영역만 영상으로 캡처하는 녹화 기능. 최대 5분까지 녹화 가능하며, 마이크 음성도 함께 녹음할 수 있다. 녹화 UI 오버레이(시간, 제어 버튼)는 화면에만 표시되고 녹화 영상에는 포함되지 않는다.
+
+### 아키텍처
+
+#### 프레임 캡처 방식: glReadPixels + Canvas
+
+GL 렌더러(`GLRendererMinimum`)의 `onDrawFrame()` 끝에서 현재 프레임버퍼를 읽어 MediaRecorder의 입력 Surface에 전달한다.
+
+```
+onDrawFrame()
+  ├── LAppMinimumDelegate.run()          ← Live2D 렌더링
+  └── EglRecordHelper.onFrameAvailable() ← 녹화 활성화 시
+        ├── glReadPixels() → ByteBuffer   (GPU → CPU 읽기)
+        ├── ByteBuffer → Bitmap           (픽셀 변환)
+        └── lockHardwareCanvas()          (Bitmap → MediaRecorder Surface)
+             └── drawBitmap(flipMatrix)   (수직 반전: GL 좌하단 원점 → Canvas 좌상단 원점)
+```
+
+**EGL Surface 공유 방식을 사용하지 않은 이유:**
+초기 구현에서는 `EGL14.eglGetCurrentDisplay()`/`eglGetCurrentContext()`를 캡처하여 인코더용 EGL Surface를 생성하고 GPU 내부에서 프레임을 복사하는 방식을 시도했으나, `GLSurfaceView`가 내부적으로 사용하는 EGL 구현과의 호환성 문제(`EGL_RECORDABLE_ANDROID` config 미지원, `eglCreateWindowSurface` 실패 등)로 일부 디바이스에서 프레임이 인코더에 전달되지 않았다. `glReadPixels` + Canvas 방식은 GPU-CPU 왕복 비용이 있지만 모든 디바이스에서 안정적으로 동작한다.
+
+#### 녹화 데이터 흐름
+
+```
+사용자: 녹화 버튼 탭
+  ├── StudioUiIntent.StartRecording
+  ├── StudioUiEffect.RequestAudioPermission → 권한 요청
+  ├── StudioUiIntent.OnAudioPermissionResult(granted)
+  └── StudioViewModel.startRecordingInternal()
+        ├── ModelRecorder.prepare() → MediaRecorder 설정, Surface 획득
+        ├── _live2dEffect.trySend(SetRecordingSurface(surface))
+        │     → Live2DScreen LaunchedEffect(effectFlow) collect
+        │       → glView.setRecordingSurface(surface)
+        │         → queueEvent { glRenderer.setRecordingSurface(surface) }
+        │           → EglRecordHelper.setRecordingSurface(surface)
+        ├── delay(500)  ← GL 스레드에서 Surface 연결 완료 대기
+        └── ModelRecorder.start()
+
+매 프레임 (GL 스레드):
+  onDrawFrame()
+    └── EglRecordHelper.onFrameAvailable()
+          └── glReadPixels → Bitmap → Canvas → MediaRecorder Surface
+
+사용자: 정지 버튼 탭
+  ├── StudioUiIntent.StopRecording
+  └── StudioViewModel.stopRecording()
+        ├── UI 상태 즉시 IDLE로 업데이트
+        ├── _live2dEffect.trySend(SetRecordingSurface(null))  ← Surface 분리
+        └── viewModelScope.launch {
+              delay(300)  ← GL 스레드에서 Surface 분리 완료 대기
+              ModelRecorder.stop() → 임시 파일
+              StudioUiEffect.RequestSaveLocation(fileName)
+              ModelRecorder.release()
+            }
+
+사용자: SAF로 저장 위치 선택
+  ├── StudioUiIntent.OnSaveLocationSelected(uri)
+  └── 임시 파일 → 사용자 지정 경로로 복사 → 임시 파일 삭제
+```
+
+#### Surface 전달 메커니즘
+
+MediaRecorder의 입력 Surface를 GL 렌더러에 전달할 때, Compose의 `StateFlow` 재구성 경로를 사용하면 지연이 크다. 대신 `Live2DUiEffect` Channel을 통해 직접 전달한다:
+
+```kotlin
+// StudioViewModel → Live2DScreen → Live2DGLSurfaceView → GLRendererMinimum → EglRecordHelper
+_live2dEffect.trySend(Live2DUiEffect.SetRecordingSurface(surface))
+```
+
+Channel은 `Channel.BUFFERED`로 설정하여 `trySend`가 항상 성공하도록 보장한다 (Rendezvous 채널의 경우 수신자가 대기 중이지 않으면 silent failure 발생).
+
+### 주요 클래스
+
+#### EglRecordHelper (core:live2d)
+
+GL 프레임버퍼를 읽어 MediaRecorder Surface에 전달하는 유틸리티. GL 스레드에서만 호출.
+
+```java
+public class EglRecordHelper {
+    // glReadPixels용 네이티브 바이트 버퍼
+    private ByteBuffer pixelBuffer;
+    // 프레임 전달용 비트맵
+    private Bitmap bitmap;
+    // GL 좌하단 원점 → Canvas 좌상단 원점 수직 반전
+    private Matrix flipMatrix;
+
+    public void init(int width, int height) { /* onSurfaceChanged에서 호출 */ }
+    public void setRecordingSurface(Surface surface) { /* null이면 녹화 중단 */ }
+    public void onFrameAvailable(long timestampNanos) {
+        // glReadPixels → Bitmap → lockHardwareCanvas → drawBitmap(flipMatrix)
+    }
+    public boolean isRecording() {
+        return initialized && recordingSurface != null && recordingSurface.isValid();
+    }
+}
+```
+
+#### ModelRecorder (feature:studio)
+
+`MediaRecorder` 래퍼. 상태 관리(`IDLE → PREPARED → RECORDING ↔ PAUSED → IDLE`), 임시 파일 관리, 에러/최대 시간 콜백 처리.
+
+```kotlin
+class ModelRecorder {
+    enum class RecordingState { IDLE, PREPARED, RECORDING, PAUSED }
+
+    fun prepare(context, width, height, hasAudioPermission, onMaxDuration, onError): Surface?
+    fun start(): Boolean
+    fun pause(): Boolean
+    fun resume(): Boolean
+    fun stop(): File?      // 임시 파일 반환
+    fun release()
+    fun deleteTempFile()
+}
+```
+
+설정:
+- 비디오: H.264, 30fps, 8Mbps, `VideoSource.SURFACE`
+- 오디오: AAC, 44.1kHz, 128kbps, `AudioSource.MIC` (권한 있을 때만)
+- 최대 녹화: 5분 (`MAX_DURATION_MS = 300_000`)
+- 해상도: GL Surface 크기 (짝수 정렬)
+
+#### RecordingOverlay (feature:studio/components)
+
+녹화 UI 오버레이 Composable. 모델 뷰 오른쪽 하단에 표시되며, 녹화 영상에는 포함되지 않음 (GL 프레임버퍼 캡처 이후 Compose 레이어에서 렌더링되므로).
+
+- 녹화 시간 (MM:SS 형식)
+- 점멸하는 빨간 인디케이터 (RECORDING 상태)
+- 녹화/정지 토글 버튼
+- 일시정지/재개 토글 버튼
+
+### MVI 패턴 확장
+
+#### StudioUiIntent (녹화 관련)
+
+```kotlin
+sealed interface StudioUiIntent {
+    // ... 기존 인텐트 ...
+    data object ToggleRecordingMode : StudioUiIntent
+    data object StartRecording : StudioUiIntent
+    data object StopRecording : StudioUiIntent
+    data object TogglePauseRecording : StudioUiIntent
+    data class OnAudioPermissionResult(val granted: Boolean) : StudioUiIntent
+    data class OnSaveLocationSelected(val uriString: String?) : StudioUiIntent
+    data class OnSurfaceSizeAvailable(val width: Int, val height: Int) : StudioUiIntent
+}
+```
+
+#### StudioUiEffect (녹화 관련)
+
+```kotlin
+sealed class StudioUiEffect {
+    // ... 기존 이펙트 ...
+    data object RequestAudioPermission : StudioUiEffect
+    data class RequestSaveLocation(val fileName: String) : StudioUiEffect
+    data class RecordingSaved(val message: String) : StudioUiEffect
+}
+```
+
+#### StudioUiState (녹화 관련 필드)
+
+```kotlin
+data class StudioUiState(
+    // ... 기존 필드 ...
+    val isRecordingMode: Boolean = false,
+    val recordingState: ModelRecorder.RecordingState = ModelRecorder.RecordingState.IDLE,
+    val recordingElapsedMs: Long = 0L,
+)
+```
+
+#### Live2DUiEffect 확장
+
+```kotlin
+sealed interface Live2DUiEffect {
+    // ... 기존 이펙트 ...
+    data class SetRecordingSurface(val surface: Surface?) : Live2DUiEffect
+}
+```
+
+### 타이밍 이슈와 해결
+
+#### 문제 1: MediaRecorder.start() 직후 -1007 에러
+
+**원인**: `ModelRecorder.prepare()` → Surface 획득 → `ModelRecorder.start()` 호출 시, GL 렌더러에 Surface가 아직 연결되지 않아 인코더에 프레임이 전달되지 않음.
+
+**해결**: `startRecordingInternal()`을 `suspend fun`으로 만들고, Surface를 `_live2dEffect` 채널로 전달한 후 `delay(500)`으로 GL 스레드 연결 완료를 대기.
+
+#### 문제 2: MediaRecorder.stop() 시 -1007 에러
+
+**원인**: `stopRecording()`에서 `SetRecordingSurface(null)`을 비동기 채널로 보낸 직후 `MediaRecorder.stop()`을 동기 호출. GL 스레드가 아직 인코더 Surface에 프레임을 쓰는 중에 stop되어 충돌.
+
+**해결**: `stopRecording()`을 비동기화. UI 상태는 즉시 IDLE로 업데이트하되, `MediaRecorder.stop()`은 `viewModelScope.launch` 안에서 `delay(300)` 후 실행하여 GL 스레드 Surface 분리 완료를 보장.
+
+#### 문제 3: Live2DUiEffect Channel trySend 실패
+
+**원인**: `Channel<Live2DUiEffect>()`의 기본 용량이 RENDEZVOUS(0)이라 수신자가 대기 중이지 않으면 `trySend`가 조용히 실패.
+
+**해결**: `Channel<Live2DUiEffect>(capacity = Channel.BUFFERED)`로 변경하여 버퍼링 보장.
+
+### @ApplicationContext 주입과 메모리 누수
+
+`StudioViewModel`에서 `ModelRecorder.prepare()`에 `Context`가 필요하여 Hilt `@ApplicationContext`를 주입한다:
+
+```kotlin
+@HiltViewModel
+class StudioViewModel @Inject constructor(
+    @ApplicationContext private val appContext: Context,
+    // ...
+) : ViewModel()
+```
+
+| 어노테이션 | 주입되는 Context | 생명주기 | 메모리 누수 위험 |
+|---|---|---|---|
+| `@ApplicationContext` | `Application` 객체 | 앱 프로세스 전체 | **없음** |
+| `@ActivityContext` | `Activity` 객체 | Activity 생명주기 | **있음** (ViewModel이 Activity보다 오래 생존) |
+
+`@ApplicationContext`는 `Application` 객체를 반환하며, 앱 프로세스가 살아있는 동안 항상 존재한다. ViewModel이 아무리 오래 유지되어도 Application보다 먼저 소멸되므로 GC를 방해하지 않는다. 만약 `@ActivityContext`를 ViewModel에 주입하면, Activity가 회전 등으로 재생성될 때 ViewModel이 이전 Activity 참조를 계속 잡아 메모리 누수가 발생하지만, `@ApplicationContext`는 이 문제에 해당하지 않는다.
+
+### 관련 파일
+
+**신규 생성**
+| 파일 | 용도 |
+|------|------|
+| `core/live2d/.../EglRecordHelper.java` | GL 프레임버퍼 → MediaRecorder Surface 전달 (glReadPixels + Canvas) |
+| `feature/studio/.../recording/ModelRecorder.kt` | MediaRecorder 래퍼 (설정, 상태 관리, 임시 파일) |
+| `feature/studio/.../components/RecordingOverlay.kt` | 녹화 UI 오버레이 Composable |
+
+**수정됨**
+| 파일 | 변경 내용 |
+|------|----------|
+| `core/live2d/.../GLRendererMinimum.java` | `EglRecordHelper` 통합 (`onSurfaceChanged`에서 init, `onDrawFrame`에서 프레임 전달) |
+| `core/live2d/.../Live2DGLSurfaceView.kt` | `setRecordingSurface()` 메서드 추가, `surfaceWidth`/`surfaceHeight` 노출 |
+| `core/live2d/.../Live2DScreen.kt` | `Live2DUiEffect.SetRecordingSurface` 처리, `onSurfaceSizeAvailable` 콜백 |
+| `core/live2d/.../Live2DUiEffect.kt` | `SetRecordingSurface(surface: Surface?)` 이펙트 추가 |
+| `feature/studio/.../StudioViewModel.kt` | 녹화 로직 전체 (`startRecordingInternal`, `stopRecording` 등), `_live2dEffect` 채널 버퍼링 |
+| `feature/studio/.../StudioScreen.kt` | 녹화 토글 버튼, `RecordingOverlay`, 권한/SAF 런처 통합 |
+| `feature/studio/.../StudioUiIntent.kt` | 녹화 관련 인텐트 7종 추가 |
+| `feature/studio/.../StudioUiEffect.kt` | 녹화 관련 이펙트 3종 추가 |
+| `feature/studio/src/main/res/values/strings.xml` | 녹화 관련 문자열 리소스 추가 |
+| `app/src/main/AndroidManifest.xml` | `RECORD_AUDIO` 권한, `android.hardware.microphone` feature 선언 |

@@ -46,7 +46,19 @@
     <string name="studio_gesture">拡大/移動</string>
     <string name="studio_reset">リセット</string>
     <string name="studio_preview">プレビュー</string>
+    <string name="studio_recording">録画</string>
     <string name="studio_snackbar_tracking_error">トラッキングエラーが発生しました</string>
+
+    <!-- StudioScreen - Recording -->
+    <string name="recording_saved">録画ファイルが保存されました</string>
+    <string name="recording_save_cancelled">保存がキャンセルされました</string>
+    <string name="recording_max_duration_reached">最大録画時間（5分）に達しました</string>
+    <string name="recording_permission_denied">マイク権限が拒否されたため、音声なしで録画します</string>
+    <string name="recording_prepare_failed">録画の準備に失敗しました</string>
+    <string name="recording_surface_size_error">録画を開始できません：画面サイズを確認できません</string>
+    <string name="recording_file_create_failed">録画ファイルの作成に失敗しました</string>
+    <string name="recording_error_occurred">録画中にエラーが発生しました</string>
+    <string name="recording_save_failed">ファイルの保存に失敗しました</string>
 
     <!-- StudioScreen - Dialogs -->
     <string name="dialog_expression_title">表情リスト</string>

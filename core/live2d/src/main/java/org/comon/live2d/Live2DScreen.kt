@@ -25,7 +25,8 @@ fun Live2DScreen(
     backgroundPath: String? = null,
     effectFlow: Flow<Live2DUiEffect>? = null,
     onModelLoaded: (() -> Unit)? = null,
-    onModelLoadError: ((String) -> Unit)? = null
+    onModelLoadError: ((String) -> Unit)? = null,
+    onSurfaceSizeAvailable: ((width: Int, height: Int) -> Unit)? = null,
 ) {
     val context: Context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -43,14 +44,24 @@ fun Live2DScreen(
     // Live2D UI Effect 처리
     LaunchedEffect(effectFlow) {
         effectFlow?.collect { effect ->
-            glView.queueEvent {
-                val manager = LAppMinimumLive2DManager.getInstance()
-                when (effect) {
-                    is Live2DUiEffect.StartExpression -> manager.startExpression(effect.path)
-                    is Live2DUiEffect.ClearExpression -> manager.clearExpression()
-                    is Live2DUiEffect.StartMotion -> manager.startMotion(effect.path)
-                    is Live2DUiEffect.ClearMotion -> manager.clearMotion()
-                    is Live2DUiEffect.ResetTransform -> manager.resetModelTransform()
+            when (effect) {
+                // 녹화 Surface는 GL queueEvent 밖에서 처리 (내부에서 queueEvent 사용)
+                is Live2DUiEffect.SetRecordingSurface -> {
+                    glView.setRecordingSurface(effect.surface)
+                }
+                // 그 외 효과는 GL 스레드에서 처리
+                else -> {
+                    glView.queueEvent {
+                        val manager = LAppMinimumLive2DManager.getInstance()
+                        when (effect) {
+                            is Live2DUiEffect.StartExpression -> manager.startExpression(effect.path)
+                            is Live2DUiEffect.ClearExpression -> manager.clearExpression()
+                            is Live2DUiEffect.StartMotion -> manager.startMotion(effect.path)
+                            is Live2DUiEffect.ClearMotion -> manager.clearMotion()
+                            is Live2DUiEffect.ResetTransform -> manager.resetModelTransform()
+                            is Live2DUiEffect.SetRecordingSurface -> { /* handled above */ }
+                        }
+                    }
                 }
             }
         }
@@ -96,6 +107,17 @@ fun Live2DScreen(
             } else {
                 LAppMinimumDelegate.getInstance().clearBackgroundImage()
             }
+        }
+    }
+
+    // Surface 크기 콜백 (모델 로딩 완료 후 크기가 확정되므로 약간 지연 후 전달)
+    LaunchedEffect(glView) {
+        // GL Surface가 생성된 후 크기를 전달하기 위해 프레임 렌더링 후 확인
+        kotlinx.coroutines.delay(500)
+        val w = glView.surfaceWidth
+        val h = glView.surfaceHeight
+        if (w > 0 && h > 0) {
+            onSurfaceSizeAvailable?.invoke(w, h)
         }
     }
 

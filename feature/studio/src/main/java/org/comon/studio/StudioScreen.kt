@@ -1,6 +1,10 @@
 package org.comon.studio
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.content.res.Configuration
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -16,10 +20,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -27,6 +33,7 @@ import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import org.comon.domain.model.ModelSource
 import org.comon.live2d.Live2DScreen
 import org.comon.studio.components.FileListDialog
+import org.comon.studio.components.RecordingOverlay
 import org.comon.studio.components.StudioIconButton
 import org.comon.studio.components.StudioToggleButton
 import org.comon.ui.snackbar.ErrorDetailDialog
@@ -42,11 +49,26 @@ fun StudioScreen(
     viewModel: StudioViewModel = hiltViewModel()
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
+    val context = LocalContext.current
     val snackbarState = rememberSnackbarStateHolder()
 
     // 초기화
     LaunchedEffect(modelSource) {
         viewModel.initialize(lifecycleOwner, modelSource)
+    }
+
+    // ━━━━ 녹화: 권한 요청 런처 ━━━━
+    val audioPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        viewModel.onIntent(StudioUiIntent.OnAudioPermissionResult(granted))
+    }
+
+    // ━━━━ 녹화: SAF 저장 위치 선택 런처 ━━━━
+    val saveFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("video/mp4")
+    ) { uri ->
+        viewModel.onIntent(StudioUiIntent.OnSaveLocationSelected(uri?.toString()))
     }
 
     // UI Effect 처리
@@ -69,6 +91,28 @@ fun StudioScreen(
                     )
                 }
                 is StudioUiEffect.NavigateBack -> onBack()
+
+                // ━━━━ 녹화 관련 Effect ━━━━
+                is StudioUiEffect.RequestAudioPermission -> {
+                    val hasPermission = ContextCompat.checkSelfPermission(
+                        context, Manifest.permission.RECORD_AUDIO
+                    ) == PackageManager.PERMISSION_GRANTED
+                    if (hasPermission) {
+                        // 이미 권한 있으면 바로 결과 전달
+                        viewModel.onIntent(StudioUiIntent.OnAudioPermissionResult(true))
+                    } else {
+                        audioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                }
+                is StudioUiEffect.RequestSaveLocation -> {
+                    saveFileLauncher.launch(effect.suggestedFileName)
+                }
+                is StudioUiEffect.RecordingSaved -> {
+                    snackbarState.showSnackbar(
+                        message = effect.message,
+                        duration = SnackbarDuration.Short
+                    )
+                }
             }
         }
     }
@@ -101,6 +145,9 @@ fun StudioScreen(
                 effectFlow = viewModel.live2dEffect,
                 onModelLoaded = { viewModel.onIntent(StudioUiIntent.OnModelLoaded) },
                 onModelLoadError = onError,
+                onSurfaceSizeAvailable = { w, h ->
+                    viewModel.onIntent(StudioUiIntent.OnSurfaceSizeAvailable(w, h))
+                },
             )
         },
     )
@@ -133,6 +180,21 @@ private fun StudioScreenContent(
             CalibrationOverlay(
                 visible = !uiState.isModelLoading && uiState.isCalibrating
             )
+
+            // 녹화 오버레이 (모델 뷰 오른쪽 하단)
+            // Compose 레이어에 존재하므로 GL 녹화 영상에는 포함되지 않음
+            if (uiState.isRecordingMode) {
+                RecordingOverlay(
+                    recordingState = uiState.recordingState,
+                    elapsedMs = uiState.recordingElapsedMs,
+                    onStartRecording = { onIntent(StudioUiIntent.StartRecording) },
+                    onStopRecording = { onIntent(StudioUiIntent.StopRecording) },
+                    onTogglePause = { onIntent(StudioUiIntent.TogglePauseRecording) },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(12.dp),
+                )
+            }
         }
 
         if (isLandscape) {
@@ -197,13 +259,21 @@ private fun StudioScreenContent(
                             }
                         }
 
-                        // 오른쪽 열: GPU/CPU, 제스처, 리셋, 프리뷰
+                        // 오른쪽 열: 녹화, GPU/CPU, 제스처, 리셋, 프리뷰
                         Column(
                             modifier = Modifier
                                 .weight(1f)
                                 .verticalScroll(rememberScrollState()),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
+                            StudioToggleButton(
+                                text = stringResource(R.string.studio_recording),
+                                emoji = if (uiState.isRecordingMode) "🔴" else "⏺️",
+                                checked = uiState.isRecordingMode,
+                                activeColor = Color(0xFFE53935),
+                                onCheckedChange = { onIntent(StudioUiIntent.ToggleRecordingMode) },
+                                modifier = Modifier.fillMaxWidth()
+                            )
                             StudioToggleButton(
                                 text = if (uiState.isGpuEnabled) stringResource(R.string.studio_gpu) else stringResource(R.string.studio_cpu),
                                 emoji = if (uiState.isGpuEnabled) "🚀" else "💻",
@@ -320,6 +390,13 @@ private fun StudioScreenContent(
                                     .fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
+                                StudioToggleButton(
+                                    text = stringResource(R.string.studio_recording),
+                                    emoji = if (uiState.isRecordingMode) "🔴" else "⏺️",
+                                    checked = uiState.isRecordingMode,
+                                    onCheckedChange = { onIntent(StudioUiIntent.ToggleRecordingMode) },
+                                    activeColor = Color(0xFFE53935)
+                                )
                                 StudioToggleButton(
                                     text = if (uiState.isGpuEnabled) stringResource(R.string.studio_gpu) else stringResource(R.string.studio_cpu),
                                     emoji = if (uiState.isGpuEnabled) "🚀" else "💻",

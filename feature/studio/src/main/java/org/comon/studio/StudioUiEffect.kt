@@ -24,4 +24,15 @@ sealed class StudioUiEffect {
 
     /** 이전 화면으로 네비게이션 */
     data object NavigateBack : StudioUiEffect()
+
+    // ━━━━━━ 녹화 관련 ━━━━━━
+
+    /** RECORD_AUDIO 런타임 권한 요청 */
+    data object RequestAudioPermission : StudioUiEffect()
+
+    /** SAF 파일 저장 위치 선택 요청 */
+    data class RequestSaveLocation(val suggestedFileName: String) : StudioUiEffect()
+
+    /** 녹화 파일 저장 완료 */
+    data class RecordingSaved(val message: String) : StudioUiEffect()
 }

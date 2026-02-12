@@ -46,7 +46,19 @@
     <string name="studio_gesture">Zoom/Geser</string>
     <string name="studio_reset">Reset</string>
     <string name="studio_preview">Pratinjau</string>
+    <string name="studio_recording">Rekam</string>
     <string name="studio_snackbar_tracking_error">Terjadi kesalahan pelacakan</string>
+
+    <!-- StudioScreen - Recording -->
+    <string name="recording_saved">File rekaman telah disimpan</string>
+    <string name="recording_save_cancelled">Penyimpanan dibatalkan</string>
+    <string name="recording_max_duration_reached">Waktu rekaman maksimum (5 menit) tercapai</string>
+    <string name="recording_permission_denied">Izin mikrofon ditolak, merekam tanpa suara</string>
+    <string name="recording_prepare_failed">Gagal mempersiapkan rekaman</string>
+    <string name="recording_surface_size_error">Tidak dapat memulai rekaman: tidak dapat menentukan ukuran layar</string>
+    <string name="recording_file_create_failed">Gagal membuat file rekaman</string>
+    <string name="recording_error_occurred">Terjadi kesalahan saat merekam</string>
+    <string name="recording_save_failed">Gagal menyimpan file</string>
 
     <!-- StudioScreen - Dialogs -->
     <string name="dialog_expression_title">Daftar Ekspresi</string>

@@ -1,11 +1,16 @@
 package org.comon.studio
 
+import android.content.Context
+import android.util.Log
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.mediapipe.tasks.components.containers.NormalizedLandmark
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,10 +29,16 @@ import org.comon.live2d.LAppMinimumDelegate
 import org.comon.live2d.Live2DUiEffect
 import org.comon.storage.SelectedBackgroundStore
 import org.comon.storage.TrackingSettingsLocalDataSource
+import org.comon.studio.recording.ModelRecorder
 import org.comon.tracking.FaceTracker
 import org.comon.tracking.FaceTrackerFactory
 import org.comon.tracking.TrackingError
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import javax.inject.Inject
+import androidx.core.net.toUri
 
 /**
  * Studio 화면의 상태 관리 및 비즈니스 로직을 담당하는 ViewModel.
@@ -54,6 +65,7 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class StudioViewModel @Inject constructor(
+    @ApplicationContext private val appContext: Context,
     private val faceTrackerFactory: FaceTrackerFactory,
     private val getModelMetadataUseCase: GetModelMetadataUseCase,
     private val mapFacePoseUseCase: MapFacePoseUseCase,
@@ -61,6 +73,10 @@ class StudioViewModel @Inject constructor(
     private val selectedBackgroundStore: SelectedBackgroundStore,
     private val getAllBackgroundsUseCase: GetAllBackgroundsUseCase,
 ) : ViewModel() {
+
+    private companion object {
+        const val TAG = "StudioViewModel"
+    }
 
     // EMA 스무딩 상태 (ViewModel에서 관리)
     private var smoothingState = FacePoseSmoothingState()
@@ -140,8 +156,9 @@ class StudioViewModel @Inject constructor(
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Live2D Effect (렌더링 관련 일회성 이벤트)
+    // 버퍼 용량: 녹화 Surface 설정 등 즉시 전달이 중요한 이벤트의 손실을 방지
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    private val _live2dEffect = Channel<Live2DUiEffect>()
+    private val _live2dEffect = Channel<Live2DUiEffect>(capacity = Channel.BUFFERED)
     val live2dEffect = _live2dEffect.receiveAsFlow()
 
     data class StudioUiState(
@@ -167,6 +184,11 @@ class StudioViewModel @Inject constructor(
 
         // 배경
         val backgroundPath: String? = null,
+
+        // 녹화
+        val isRecordingMode: Boolean = false,
+        val recordingState: ModelRecorder.RecordingState = ModelRecorder.RecordingState.IDLE,
+        val recordingElapsedMs: Long = 0L,
     )
 
     sealed class DialogState {
@@ -291,6 +313,14 @@ class StudioViewModel @Inject constructor(
             is StudioUiIntent.StartMotion -> startMotion(intent.path)
             is StudioUiIntent.ClearMotion -> clearMotion()
             is StudioUiIntent.ResetTransform -> resetTransform()
+            // 녹화 관련
+            is StudioUiIntent.ToggleRecordingMode -> toggleRecordingMode()
+            is StudioUiIntent.StartRecording -> requestStartRecording()
+            is StudioUiIntent.StopRecording -> stopRecording()
+            is StudioUiIntent.TogglePauseRecording -> togglePauseRecording()
+            is StudioUiIntent.OnAudioPermissionResult -> onAudioPermissionResult(intent.granted)
+            is StudioUiIntent.OnSaveLocationSelected -> onSaveLocationSelected(intent.uriString)
+            is StudioUiIntent.OnSurfaceSizeAvailable -> onSurfaceSizeAvailable(intent.width, intent.height)
         }
     }
 
@@ -349,10 +379,255 @@ class StudioViewModel @Inject constructor(
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // Recording
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    private val modelRecorder = ModelRecorder()
+    private var recordingTimerJob: Job? = null
+    private var glSurfaceWidth: Int = 0
+    private var glSurfaceHeight: Int = 0
+    private var pendingAudioPermissionGranted: Boolean = false
+    private var pendingTempFile: File? = null
+
+    private fun toggleRecordingMode() {
+        val current = _uiState.value
+        if (current.isRecordingMode) {
+            // 녹화 중이면 먼저 정지
+            if (current.recordingState != ModelRecorder.RecordingState.IDLE) {
+                stopRecording()
+            }
+            _uiState.update {
+                it.copy(isRecordingMode = false)
+            }
+        } else {
+            _uiState.update {
+                it.copy(isRecordingMode = true)
+            }
+        }
+    }
+
+    private fun requestStartRecording() {
+        // 오디오 권한 요청 Effect 전송
+        _uiEffect.trySend(StudioUiEffect.RequestAudioPermission)
+    }
+
+    private fun onAudioPermissionResult(granted: Boolean) {
+        pendingAudioPermissionGranted = granted
+        viewModelScope.launch {
+            startRecordingInternal(hasAudioPermission = granted)
+        }
+    }
+
+    private suspend fun startRecordingInternal(hasAudioPermission: Boolean) {
+        if (glSurfaceWidth <= 0 || glSurfaceHeight <= 0) {
+            _uiEffect.trySend(StudioUiEffect.ShowSnackbar("녹화를 시작할 수 없습니다: 화면 크기를 확인할 수 없습니다"))
+            return
+        }
+
+        val surface = modelRecorder.prepare(
+            context = appContext,
+            width = glSurfaceWidth,
+            height = glSurfaceHeight,
+            hasAudioPermission = hasAudioPermission,
+            onMaxDuration = {
+                // MediaRecorder 콜백은 메인 스레드가 아닐 수 있음
+                viewModelScope.launch {
+                    handleMaxDurationReached()
+                }
+            },
+            onError = { message ->
+                viewModelScope.launch {
+                    handleRecordingError(message)
+                }
+            },
+        )
+
+        if (surface == null) {
+            _uiEffect.trySend(StudioUiEffect.ShowSnackbar("녹화 준비에 실패했습니다"))
+            return
+        }
+
+        // Surface를 Live2DUiEffect 채널로 GL 렌더러에 직접 전달
+        // (Compose 재구성을 거치지 않아 빠르게 GL 스레드에 도달)
+        val sendResult = _live2dEffect.trySend(Live2DUiEffect.SetRecordingSurface(surface))
+        Log.d(TAG, "SetRecordingSurface trySend result: $sendResult, surface=$surface")
+
+        // GL 스레드에서 Surface가 연결되고 최소 1프레임이 렌더링될 시간 확보
+        // (채널 수신 -> Compose collect -> queueEvent -> GL onDrawFrame 한 사이클)
+        delay(500)
+
+        if (!modelRecorder.start()) {
+            _live2dEffect.trySend(Live2DUiEffect.SetRecordingSurface(null))
+            return
+        }
+
+        if (!hasAudioPermission) {
+            _uiEffect.trySend(StudioUiEffect.ShowSnackbar("마이크 권한이 거부되어 음성 없이 녹화합니다"))
+        }
+
+        _uiState.update {
+            it.copy(
+                recordingState = ModelRecorder.RecordingState.RECORDING,
+                recordingElapsedMs = 0L,
+            )
+        }
+
+        startRecordingTimer()
+    }
+
+    private fun stopRecording() {
+        stopRecordingTimer()
+
+        // UI 상태를 즉시 IDLE로 업데이트 (사용자 피드백 즉각 반영)
+        _uiState.update {
+            it.copy(
+                recordingState = ModelRecorder.RecordingState.IDLE,
+                recordingElapsedMs = 0L,
+            )
+        }
+
+        // GL 렌더러에서 인코더 Surface를 먼저 분리한 후 MediaRecorder를 정지해야 함.
+        // Surface 분리 전에 stop()을 호출하면 GL 스레드가 아직 인코더에 프레임을
+        // 쓰는 중이라 -1007 (INVALID_OPERATION) 에러가 발생할 수 있음.
+        _live2dEffect.trySend(Live2DUiEffect.SetRecordingSurface(null))
+
+        viewModelScope.launch {
+            // GL 스레드에서 Surface 분리가 완료될 시간 확보
+            // (채널 수신 → Compose collect → queueEvent → GL 스레드 처리)
+            delay(300)
+
+            val tempFile = modelRecorder.stop()
+            if (tempFile != null && tempFile.exists() && tempFile.length() > 0) {
+                pendingTempFile = tempFile
+                val dateFormat = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
+                val fileName = "LiveMotion_${dateFormat.format(Date())}.mp4"
+                _uiEffect.trySend(StudioUiEffect.RequestSaveLocation(fileName))
+            } else {
+                modelRecorder.deleteTempFile()
+                _uiEffect.trySend(StudioUiEffect.ShowSnackbar("녹화 파일 생성에 실패했습니다"))
+            }
+
+            modelRecorder.release()
+        }
+    }
+
+    private fun togglePauseRecording() {
+        val currentState = _uiState.value.recordingState
+        when (currentState) {
+            ModelRecorder.RecordingState.RECORDING -> {
+                if (modelRecorder.pause()) {
+                    stopRecordingTimer()
+                    _uiState.update { it.copy(recordingState = ModelRecorder.RecordingState.PAUSED) }
+                }
+            }
+            ModelRecorder.RecordingState.PAUSED -> {
+                if (modelRecorder.resume()) {
+                    startRecordingTimer()
+                    _uiState.update { it.copy(recordingState = ModelRecorder.RecordingState.RECORDING) }
+                }
+            }
+            else -> { /* Ignore */ }
+        }
+    }
+
+    private fun handleMaxDurationReached() {
+        _uiEffect.trySend(StudioUiEffect.ShowSnackbar("최대 녹화 시간(5분)에 도달했습니다"))
+        stopRecording()
+    }
+
+    private fun handleRecordingError(message: String) {
+        stopRecordingTimer()
+        _live2dEffect.trySend(Live2DUiEffect.SetRecordingSurface(null))
+        modelRecorder.release()
+        _uiState.update {
+            it.copy(
+                recordingState = ModelRecorder.RecordingState.IDLE,
+                recordingElapsedMs = 0L,
+            )
+        }
+        _uiEffect.trySend(StudioUiEffect.ShowErrorWithDetail(
+            displayMessage = "녹화 중 오류가 발생했습니다",
+            detailMessage = message,
+        ))
+    }
+
+    private fun onSaveLocationSelected(uriString: String?) {
+        val tempFile = pendingTempFile
+        if (uriString == null || tempFile == null) {
+            // 사용자가 저장을 취소한 경우
+            pendingTempFile?.let {
+                modelRecorder.deleteTempFile()
+            }
+            pendingTempFile = null
+            if (uriString == null) {
+                _uiEffect.trySend(StudioUiEffect.ShowSnackbar("저장이 취소되었습니다"))
+            }
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                val uri = uriString.toUri()
+                appContext.contentResolver.openOutputStream(uri)?.use { output ->
+                    tempFile.inputStream().use { input ->
+                        input.copyTo(output)
+                    }
+                } ?: throw Exception("출력 스트림을 열 수 없습니다")
+
+                // 성공 시 임시 파일 삭제
+                tempFile.delete()
+                pendingTempFile = null
+                _uiEffect.trySend(StudioUiEffect.RecordingSaved("녹화 파일이 저장되었습니다"))
+            } catch (e: Exception) {
+                _uiEffect.trySend(StudioUiEffect.ShowErrorWithDetail(
+                    displayMessage = "파일 저장에 실패했습니다",
+                    detailMessage = e.localizedMessage ?: "알 수 없는 오류",
+                ))
+                // 임시 파일 유지 (재시도 가능)
+            }
+        }
+    }
+
+    private fun onSurfaceSizeAvailable(width: Int, height: Int) {
+        glSurfaceWidth = width
+        glSurfaceHeight = height
+    }
+
+    private fun startRecordingTimer() {
+        recordingTimerJob?.cancel()
+        recordingTimerJob = viewModelScope.launch {
+            while (true) {
+                delay(100)
+                val elapsed = _uiState.value.recordingElapsedMs + 100
+                _uiState.update { it.copy(recordingElapsedMs = elapsed) }
+
+                // 5분 타이머 안전장치 (MediaRecorder의 maxDuration과 이중 보호)
+                if (elapsed >= ModelRecorder.MAX_DURATION_MS) {
+                    handleMaxDurationReached()
+                    break
+                }
+            }
+        }
+    }
+
+    private fun stopRecordingTimer() {
+        recordingTimerJob?.cancel()
+        recordingTimerJob = null
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Cleanup
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     override fun onCleared() {
         super.onCleared()
+
+        // 녹화 정리
+        // onCleared에서는 viewModelScope가 취소되므로 channel send / delay 불가.
+        // release()가 내부적으로 stop + 예외 처리를 수행하므로 직접 호출만으로 충분.
+        stopRecordingTimer()
+        modelRecorder.release()
+        modelRecorder.deleteTempFile()
+        pendingTempFile?.delete()
+
         faceTracker?.stop()
         faceTracker = null
         // Live2D 리소스 정리 (view, textureManager, model, CubismFramework.dispose)

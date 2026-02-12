@@ -46,7 +46,19 @@
     <string name="studio_gesture">縮放/移動</string>
     <string name="studio_reset">重設</string>
     <string name="studio_preview">預覽</string>
+    <string name="studio_recording">錄製</string>
     <string name="studio_snackbar_tracking_error">發生追蹤錯誤</string>
+
+    <!-- StudioScreen - Recording -->
+    <string name="recording_saved">錄製檔案已儲存</string>
+    <string name="recording_save_cancelled">儲存已取消</string>
+    <string name="recording_max_duration_reached">已達到最大錄製時間（5分鐘）</string>
+    <string name="recording_permission_denied">麥克風權限被拒絕，將無聲錄製</string>
+    <string name="recording_prepare_failed">錄製準備失敗</string>
+    <string name="recording_surface_size_error">無法開始錄製：無法確定螢幕尺寸</string>
+    <string name="recording_file_create_failed">錄製檔案建立失敗</string>
+    <string name="recording_error_occurred">錄製過程中發生錯誤</string>
+    <string name="recording_save_failed">檔案儲存失敗</string>
 
     <!-- StudioScreen - Dialogs -->
     <string name="dialog_expression_title">表情列表</string>

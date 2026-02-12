@@ -46,7 +46,19 @@
     <string name="studio_gesture">Zoom/Move</string>
     <string name="studio_reset">Reset</string>
     <string name="studio_preview">Preview</string>
+    <string name="studio_recording">Record</string>
     <string name="studio_snackbar_tracking_error">A tracking error occurred</string>
+
+    <!-- StudioScreen - Recording -->
+    <string name="recording_saved">Recording saved</string>
+    <string name="recording_save_cancelled">Save cancelled</string>
+    <string name="recording_max_duration_reached">Maximum recording time (5 min) reached</string>
+    <string name="recording_permission_denied">Recording without audio (mic permission denied)</string>
+    <string name="recording_prepare_failed">Failed to prepare recording</string>
+    <string name="recording_surface_size_error">Cannot start recording: unable to determine screen size</string>
+    <string name="recording_file_create_failed">Failed to create recording file</string>
+    <string name="recording_error_occurred">An error occurred during recording</string>
+    <string name="recording_save_failed">Failed to save file</string>
 
     <!-- StudioScreen - Dialogs -->
     <string name="dialog_expression_title">Expressions</string>

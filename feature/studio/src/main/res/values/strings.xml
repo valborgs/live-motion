@@ -46,7 +46,19 @@
     <string name="studio_gesture">확대/이동</string>
     <string name="studio_reset">리셋</string>
     <string name="studio_preview">프리뷰</string>
+    <string name="studio_recording">녹화</string>
     <string name="studio_snackbar_tracking_error">트래킹 오류가 발생했습니다</string>
+
+    <!-- StudioScreen - Recording -->
+    <string name="recording_saved">녹화 파일이 저장되었습니다</string>
+    <string name="recording_save_cancelled">저장이 취소되었습니다</string>
+    <string name="recording_max_duration_reached">최대 녹화 시간(5분)에 도달했습니다</string>
+    <string name="recording_permission_denied">마이크 권한이 거부되어 음성 없이 녹화합니다</string>
+    <string name="recording_prepare_failed">녹화 준비에 실패했습니다</string>
+    <string name="recording_surface_size_error">녹화를 시작할 수 없습니다: 화면 크기를 확인할 수 없습니다</string>
+    <string name="recording_file_create_failed">녹화 파일 생성에 실패했습니다</string>
+    <string name="recording_error_occurred">녹화 중 오류가 발생했습니다</string>
+    <string name="recording_save_failed">파일 저장에 실패했습니다</string>
 
     <!-- StudioScreen - Dialogs -->
     <string name="dialog_expression_title">감정 목록</string>
