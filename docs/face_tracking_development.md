@@ -4600,3 +4600,98 @@ z=2: SnackbarHost   — 스낵바 (하단 중앙)
 | 파일 | 변경 내용 |
 |------|----------|
 | `feature/studio/.../StudioScreen.kt` | `modelViewContent()`를 `if/else` 분기 바깥 고정 위치로 이동, 분기 내 모델 뷰를 `Spacer`로 대체 |
+
+## 42. 화면 회전 시 배경 이미지 잘림 수정 (2026-02-12 업데이트)
+
+### 문제
+
+화면 회전 시 배경 이미지가 화면 전체를 채우지 못하고 잘리는 현상 발생:
+- Portrait → Landscape 전환: 배경이 화면 좌측에 치우쳐 보이고 우측이 잘림
+- Landscape → Portrait 전환: 배경이 화면 상단으로 넘치고 우측이 비어 보임
+
+### 원인 분석
+
+`LAppMinimumDelegate`에서 배경 스프라이트의 정점 좌표(`rect`)가 화면 회전 후 갱신되지 않는 것이 근본 원인.
+
+#### 배경 렌더링 흐름
+
+1. `setBackgroundImage()` — 배경 이미지 로드 시 현재 `windowWidth × windowHeight`로 `backgroundSprite`를 생성
+2. `onSurfaceChanged()` — 화면 회전 시 `windowWidth`/`windowHeight`만 갱신, `backgroundSprite`의 `rect`는 미갱신
+3. `run()` — 매 프레임 렌더링 시 `setWindowSize()`로 `maxWidth`/`maxHeight`를 갱신하지만, `rect`는 이전 화면 크기 그대로
+
+#### 정점 좌표 계산 문제 (`LAppMinimumSprite.renderImmediate()`)
+
+```java
+// positionVertex 계산에 rect과 maxWidth/maxHeight가 모두 사용됨
+(rect.right - maxWidth * 0.5f) / (maxWidth * 0.5f)
+(rect.up - maxHeight * 0.5f) / (maxHeight * 0.5f)
+```
+
+**Portrait(1080×1920)에서 생성 후 Landscape(1920×1080)로 전환한 경우:**
+
+| 변수 | 값 | 설명 |
+|------|-----|------|
+| `rect` | `{left=0, right=1080, up=1920, down=0}` | Portrait 기준 (미갱신) |
+| `maxWidth` | 1920 | Landscape 기준 (`setWindowSize`로 갱신됨) |
+| `maxHeight` | 1080 | Landscape 기준 |
+
+정점 좌표 계산 결과:
+- X: `(1080 - 960) / 960 = 0.125` → 화면 중앙~우측 12.5% 범위만 커버 (정상이면 1.0)
+- Y: `(1920 - 540) / 540 = 2.556` → 화면 위로 크게 넘침 (정상이면 1.0)
+
+결과적으로 스프라이트가 화면의 일부만 차지하거나 화면 밖으로 넘쳐서 배경이 잘려 보임.
+
+### 해결 방법
+
+`onSurfaceChanged()`에서 `backgroundSprite`가 존재할 경우 `resize()`를 호출하여 `rect`를 새 화면 크기에 맞게 갱신:
+
+```java
+public void onSurfaceChanged(int width, int height) {
+    GLES20.glViewport(0, 0, width, height);
+    windowWidth = width;
+    windowHeight = height;
+
+    view.initialize();
+    view.initializeSprite();
+
+    // 배경 스프라이트의 rect를 새 화면 크기에 맞게 갱신
+    if (backgroundSprite != null) {
+        backgroundSprite.resize(
+            windowWidth * 0.5f,
+            windowHeight * 0.5f,
+            windowWidth,
+            windowHeight
+        );
+    }
+}
+```
+
+`resize()` 호출로 `rect`가 새 화면 크기 기준으로 재계산됨:
+- `rect.left = centerX - width/2 = 0`
+- `rect.right = centerX + width/2 = windowWidth`
+- `rect.up = centerY + height/2 = windowHeight`
+- `rect.down = centerY - height/2 = 0`
+
+이후 `run()`의 center-crop UV 계산은 이미 `windowWidth`/`windowHeight`를 사용하므로 정상 동작.
+
+#### 수정 후 렌더링 흐름
+
+```
+화면 회전 → onSurfaceChanged(newWidth, newHeight)
+  ├── windowWidth/windowHeight 갱신
+  ├── view.initialize() / view.initializeSprite()
+  └── backgroundSprite.resize(newW/2, newH/2, newW, newH)  ← 추가됨
+       └── rect가 새 화면 크기에 맞게 재계산
+
+매 프레임 run()
+  ├── setWindowSize(windowWidth, windowHeight)  → maxWidth/maxHeight 갱신
+  ├── center-crop UV 계산 (windowWidth/windowHeight 기반)
+  └── renderImmediate() → rect와 maxWidth/maxHeight 모두 새 화면 크기 → 정상 출력
+```
+
+### 관련 파일
+
+**수정됨**
+| 파일 | 변경 내용 |
+|------|----------|
+| `core/live2d/.../LAppMinimumDelegate.java` | `onSurfaceChanged()`에서 `backgroundSprite.resize()` 호출 추가 |

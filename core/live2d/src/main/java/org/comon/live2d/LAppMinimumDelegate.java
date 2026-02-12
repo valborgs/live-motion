@@ -100,6 +100,16 @@ public class LAppMinimumDelegate {
         // AppViewの初期化
         view.initialize();
         view.initializeSprite();
+
+        // 배경 스프라이트의 rect를 새 화면 크기에 맞게 갱신
+        if (backgroundSprite != null) {
+            backgroundSprite.resize(
+                windowWidth * 0.5f,
+                windowHeight * 0.5f,
+                windowWidth,
+                windowHeight
+            );
+        }
     }
 
     public void run() {
