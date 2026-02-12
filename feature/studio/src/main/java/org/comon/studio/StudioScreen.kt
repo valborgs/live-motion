@@ -119,21 +119,27 @@ private fun StudioScreenContent(
         LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     Box(modifier = Modifier.fillMaxSize()) {
+        // 모델 뷰 영역 - 화면 회전 시에도 동일한 composition 위치를 유지하여
+        // GLSurfaceView가 파괴/재생성되지 않도록 함
+        Box(
+            modifier = if (isLandscape) {
+                Modifier.fillMaxHeight().fillMaxWidth(0.7f)
+            } else {
+                Modifier.fillMaxWidth().fillMaxHeight(0.8f)
+            }
+        ) {
+            modelViewContent()
+            ModelLoadingOverlay(uiState.isModelLoading)
+            CalibrationOverlay(
+                visible = !uiState.isModelLoading && uiState.isCalibrating
+            )
+        }
+
         if (isLandscape) {
             // === Landscape 레이아웃: 70/30 수평 분할 ===
             Row(modifier = Modifier.fillMaxSize()) {
-                // 왼쪽: 모델 뷰 영역 (70%)
-                Box(
-                    modifier = Modifier
-                        .weight(0.7f)
-                        .fillMaxHeight()
-                ) {
-                    modelViewContent()
-                    ModelLoadingOverlay(uiState.isModelLoading)
-                    CalibrationOverlay(
-                        visible = !uiState.isModelLoading && uiState.isCalibrating
-                    )
-                }
+                // 모델 뷰 영역 자리 확보 (70%)
+                Spacer(modifier = Modifier.weight(0.7f))
 
                 // 오른쪽: 설정 패널 (30%)
                 Column(
@@ -244,18 +250,8 @@ private fun StudioScreenContent(
         } else {
             // === Portrait 레이아웃: 기존 80/20 수직 분할 ===
             Column(modifier = Modifier.fillMaxSize()) {
-                // 상단 모델 뷰 영역 (80%)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(0.8f)
-                ) {
-                    modelViewContent()
-                    ModelLoadingOverlay(uiState.isModelLoading)
-                    CalibrationOverlay(
-                        visible = !uiState.isModelLoading && uiState.isCalibrating
-                    )
-                }
+                // 모델 뷰 영역 자리 확보 (80%)
+                Spacer(modifier = Modifier.weight(0.8f))
 
                 // 하단 설정 영역 (20%)
                 Box(

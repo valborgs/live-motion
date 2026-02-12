@@ -48,6 +48,7 @@
 38. [BackgroundCard 이미지 로딩 최적화 (Coil 도입)](#38-backgroundcard-이미지-로딩-최적화-coil-도입-2026-02-11-업데이트)
 39. [Landscape 모드 페이스 트래킹 수정](#39-landscape-모드-페이스-트래킹-수정-2026-02-11-업데이트)
 40. [Landscape UI 대응](#40-landscape-ui-대응-2026-02-12-업데이트)
+41. [화면 회전 시 Live2D 모델 소실 수정](#41-화면-회전-시-live2d-모델-소실-수정-2026-02-12-업데이트)
 
 ---
 
@@ -4488,3 +4489,114 @@ PrepareScreen에서 TopBar 로직을 `PrepareTopBar()` private composable로 추
 | `feature/studio/.../components/StudioToggleButton.kt` | `modifier: Modifier = Modifier` 파라미터 추가, Surface에 병합 |
 | `feature/studio/.../StudioScreen.kt` | `ModelLoadingOverlay`, `CalibrationOverlay`, `LandmarkPreviewCanvas` 추출, landscape 70/30 수평 분할 레이아웃 추가, landscape preview 추가 |
 | `feature/studio/.../PrepareScreen.kt` | `PrepareTopBar` 추출, landscape NavigationRail + 4열 그리드 레이아웃 추가, landscape preview 추가 |
+
+## 41. 화면 회전 시 Live2D 모델 소실 수정 (2026-02-12 업데이트)
+
+### 문제
+
+화면을 회전(portrait ↔ landscape)하면 트래킹과 배경화면은 유지되지만 **Live2D 모델이 사라지는** 현상 발생.
+
+### 원인 분석
+
+40번에서 구현한 landscape 대응 레이아웃에서 `StudioScreenContent`가 `if (isLandscape)` 분기로 `Row`/`Column`을 전환하며, `modelViewContent()`가 각 분기 내부에서 호출되고 있었음:
+
+```kotlin
+// 기존 구조 (문제)
+if (isLandscape) {
+    Row {
+        Box { modelViewContent() }  // composition 위치 A
+        Column { controls }
+    }
+} else {
+    Column {
+        Box { modelViewContent() }  // composition 위치 B
+        Box { controls }
+    }
+}
+```
+
+화면 회전 시 `isLandscape` 값이 변경되면 Compose는 이전 분기를 **dispose**하고 새 분기를 **create**함. `modelViewContent()` 안의 `Live2DScreen`이 다른 composition 위치(A→B 또는 B→A)로 이동하면:
+
+1. `remember { Live2DGLSurfaceView(context) }` 가 새로 실행 → 새 GLSurfaceView 생성
+2. 이전 GL 컨텍스트의 모델/텍스처 리소스 소실
+3. 새 Surface에서 모델 재로드 타이밍 문제 발생
+
+**트래킹과 배경이 유지되는 이유**:
+- FaceTracker는 ViewModel에 바인딩되어 있고, `configChanges` 덕분에 Activity가 재생성되지 않으므로 ViewModel과 함께 유지
+- 배경은 `LaunchedEffect(backgroundPath)`로 매번 재설정되므로 새 GL 컨텍스트에서도 정상 작동
+
+### 시도 1: `movableContentOf` (실패)
+
+`movableContentOf`를 사용하여 composition 상태를 보존하려 시도:
+
+```kotlin
+val currentModelViewContent by rememberUpdatedState(modelViewContent)
+val movableModelView = remember {
+    movableContentOf {
+        currentModelViewContent()
+        ModelLoadingOverlay(...)
+        CalibrationOverlay(...)
+    }
+}
+```
+
+**실패 원인**: `movableContentOf`가 콘텐츠를 이동할 때 내부적으로 `AndroidView`(GLSurfaceView)의 detach/attach가 발생. GLSurfaceView가 detach되면 Surface가 파괴되고, reattach 시 새 Surface가 생성되면서 GL 컨텍스트와 모델 데이터가 유실되어 화면이 검게 표시됨.
+
+### 해결 방법: 고정 composition 위치 + Spacer
+
+`modelViewContent()`를 `if/else` 분기 **바깥**의 고정 위치에 배치하고, 분기 안에서는 `Spacer`로 자리만 확보:
+
+```kotlin
+// 수정된 구조
+Box(fillMaxSize) {
+    // 1) 모델 뷰 - 항상 동일한 composition 위치 (첫 번째 자식)
+    Box(
+        modifier = if (isLandscape) {
+            Modifier.fillMaxHeight().fillMaxWidth(0.7f)
+        } else {
+            Modifier.fillMaxWidth().fillMaxHeight(0.8f)
+        }
+    ) {
+        modelViewContent()       // composition 위치 불변
+        ModelLoadingOverlay(...)
+        CalibrationOverlay(...)
+    }
+
+    // 2) 컨트롤 - Spacer로 모델 영역 자리 확보
+    if (isLandscape) {
+        Row(fillMaxSize) {
+            Spacer(weight=0.7f)  // 모델 영역 자리
+            Column(weight=0.3f) { controls }
+        }
+    } else {
+        Column(fillMaxSize) {
+            Spacer(weight=0.8f)  // 모델 영역 자리
+            Box(weight=0.2f) { controls }
+        }
+    }
+
+    SnackbarHost(...)
+}
+```
+
+#### 핵심 원리
+
+- **모델 뷰는 외부 `Box`의 첫 번째 자식**으로 항상 동일한 composition 위치를 유지. `if/else`가 전환되어도 이 노드는 영향받지 않음
+- **modifier만 조건부로 변경**: `fillMaxWidth(0.7f)` (landscape) vs `fillMaxHeight(0.8f)` (portrait). modifier 변경은 composition identity에 영향 없음
+- **Spacer가 레이아웃 공간 확보**: `Row`/`Column` 내부에서 `Spacer(weight=0.7f/0.8f)`가 모델 뷰와 동일한 영역을 차지하여 컨트롤이 겹치지 않도록 함
+- **터치 이벤트 정상 전달**: `Spacer`는 터치를 소비하지 않으므로, 외부 `Box`에서 z-order 상 아래에 있는 모델 뷰(GLSurfaceView)가 터치 이벤트를 정상 수신
+
+#### 레이어 구조 (z-order)
+
+```
+z=0: Box(모델 뷰)  — GLSurfaceView + 오버레이
+z=1: Row/Column     — Spacer(투명) + Controls(배경 있음)
+z=2: SnackbarHost   — 스낵바 (하단 중앙)
+```
+
+### 관련 파일
+
+**수정됨**
+| 파일 | 변경 내용 |
+|------|----------|
+| `feature/studio/.../StudioScreen.kt` | `modelViewContent()`를 `if/else` 분기 바깥 고정 위치로 이동, 분기 내 모델 뷰를 `Spacer`로 대체 |
