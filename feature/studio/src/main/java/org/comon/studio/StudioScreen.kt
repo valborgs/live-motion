@@ -195,6 +195,12 @@ private fun StudioScreenContent(
                         .padding(12.dp),
                 )
             }
+
+            // 스낵바 호스트 (설정 영역 위에 표시)
+            SnackbarHost(
+                hostState = snackbarState.snackbarHostState,
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
         }
 
         if (isLandscape) {
@@ -439,11 +445,6 @@ private fun StudioScreenContent(
             }
         }
 
-        // 스낵바 호스트
-        SnackbarHost(
-            hostState = snackbarState.snackbarHostState,
-            modifier = Modifier.align(Alignment.BottomCenter)
-        )
     }
 
     // Dialogs
