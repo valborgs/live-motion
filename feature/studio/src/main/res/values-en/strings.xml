@@ -44,6 +44,7 @@
     <string name="studio_gpu">GPU</string>
     <string name="studio_cpu">CPU</string>
     <string name="studio_gesture">Zoom/Move</string>
+    <string name="studio_background_gesture">BG Move</string>
     <string name="studio_reset">Reset</string>
     <string name="studio_preview">Preview</string>
     <string name="studio_recording">Record</string>

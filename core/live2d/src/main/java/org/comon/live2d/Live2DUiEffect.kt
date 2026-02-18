@@ -24,6 +24,9 @@ sealed interface Live2DUiEffect {
     /** Transform(위치/스케일) 리셋 */
     data object ResetTransform : Live2DUiEffect
 
+    /** 배경 Transform(확대/이동) 리셋 */
+    data object ResetBackgroundTransform : Live2DUiEffect
+
     /** 녹화용 Surface 설정 (null이면 녹화 중단) */
     data class SetRecordingSurface(val surface: Surface?) : Live2DUiEffect
 }

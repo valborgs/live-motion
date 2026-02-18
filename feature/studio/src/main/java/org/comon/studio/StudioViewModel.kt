@@ -178,6 +178,7 @@ class StudioViewModel @Inject constructor(
 
         // UI 토글
         val isGestureEnabled: Boolean = false,
+        val isBackgroundGestureEnabled: Boolean = false,
         val isPreviewVisible: Boolean = true,
 
         // 다이얼로그
@@ -311,6 +312,7 @@ class StudioViewModel @Inject constructor(
     fun onIntent(intent: StudioUiIntent) {
         when (intent) {
             is StudioUiIntent.ToggleGesture -> toggleGesture()
+            is StudioUiIntent.ToggleBackgroundGesture -> toggleBackgroundGesture()
             is StudioUiIntent.TogglePreview -> togglePreview()
             is StudioUiIntent.SetGpuEnabled -> setGpuEnabled(intent.enabled)
             is StudioUiIntent.ShowExpressionDialog -> showExpressionDialog()
@@ -342,7 +344,25 @@ class StudioViewModel @Inject constructor(
     // UI Actions
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     private fun toggleGesture() {
-        _uiState.update { it.copy(isGestureEnabled = !it.isGestureEnabled) }
+        _uiState.update {
+            val newGesture = !it.isGestureEnabled
+            it.copy(
+                isGestureEnabled = newGesture,
+                // 모델 제스처 ON 시 배경 제스처 OFF (상호 배타)
+                isBackgroundGestureEnabled = if (newGesture) false else it.isBackgroundGestureEnabled,
+            )
+        }
+    }
+
+    private fun toggleBackgroundGesture() {
+        _uiState.update {
+            val newBgGesture = !it.isBackgroundGestureEnabled
+            it.copy(
+                isBackgroundGestureEnabled = newBgGesture,
+                // 배경 제스처 ON 시 모델 제스처 OFF (상호 배타)
+                isGestureEnabled = if (newBgGesture) false else it.isGestureEnabled,
+            )
+        }
     }
 
     private fun togglePreview() {
@@ -390,6 +410,7 @@ class StudioViewModel @Inject constructor(
 
     private fun resetTransform() {
         _live2dEffect.trySend(Live2DUiEffect.ResetTransform)
+        _live2dEffect.trySend(Live2DUiEffect.ResetBackgroundTransform)
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -121,33 +121,24 @@ public class LAppMinimumDelegate {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glClearDepthf(1.0f);
 
-        // 배경 이미지 렌더링 (center-crop 방식)
+        // 배경 이미지 렌더링 (원본 크기, 확대/이동 가능)
         if (backgroundTextureId > 0 && backgroundSprite != null
                 && backgroundImageWidth > 0 && backgroundImageHeight > 0) {
-            // Center-crop: 화면을 완전히 채우면서 비율 유지, 넘치는 부분을 균등하게 잘라냄
-            float screenAspect = (float) windowWidth / windowHeight;
-            float imageAspect = (float) backgroundImageWidth / backgroundImageHeight;
+            // 원본 픽셀 크기에 scale 적용
+            float spriteW = backgroundImageWidth * backgroundScale;
+            float spriteH = backgroundImageHeight * backgroundScale;
 
-            float uvLeft = 0f, uvRight = 1f, uvTop = 0f, uvBottom = 1f;
-            if (imageAspect > screenAspect) {
-                // 이미지가 화면보다 가로로 넓음 → 좌우를 잘라냄
-                float visibleFraction = screenAspect / imageAspect;
-                float offset = (1f - visibleFraction) / 2f;
-                uvLeft = offset;
-                uvRight = 1f - offset;
-            } else if (imageAspect < screenAspect) {
-                // 이미지가 화면보다 세로로 긺 → 상하를 잘라냄
-                float visibleFraction = imageAspect / screenAspect;
-                float offset = (1f - visibleFraction) / 2f;
-                uvTop = offset;
-                uvBottom = 1f - offset;
-            }
+            // 화면 중앙 + 오프셋 (오프셋은 픽셀 단위)
+            float centerX = windowWidth * 0.5f + backgroundOffsetX;
+            float centerY = windowHeight * 0.5f + backgroundOffsetY;
+
+            backgroundSprite.resize(centerX, centerY, spriteW, spriteH);
 
             final float[] uvVertex = {
-                uvRight, uvTop,
-                uvLeft,  uvTop,
-                uvLeft,  uvBottom,
-                uvRight, uvBottom
+                1f, 0f,
+                0f, 0f,
+                0f, 1f,
+                1f, 1f
             };
             backgroundSprite.setColor(1.0f, 1.0f, 1.0f, 1.0f);
             backgroundSprite.setWindowSize(windowWidth, windowHeight);
@@ -315,4 +306,39 @@ public class LAppMinimumDelegate {
     private LAppMinimumSprite backgroundSprite;
     private int backgroundImageWidth;
     private int backgroundImageHeight;
+
+    // 배경 확대/이동 변환
+    private float backgroundScale = 1.0f;
+    private float backgroundOffsetX = 0f;
+    private float backgroundOffsetY = 0f;
+
+    public void setBackgroundScale(float scale) {
+        backgroundScale = Math.max(0.1f, Math.min(10.0f, scale));
+    }
+
+    public float getBackgroundScale() {
+        return backgroundScale;
+    }
+
+    /**
+     * 배경 오프셋 설정 (픽셀 단위)
+     */
+    public void setBackgroundOffset(float x, float y) {
+        backgroundOffsetX = x;
+        backgroundOffsetY = y;
+    }
+
+    public float getBackgroundOffsetX() {
+        return backgroundOffsetX;
+    }
+
+    public float getBackgroundOffsetY() {
+        return backgroundOffsetY;
+    }
+
+    public void resetBackgroundTransform() {
+        backgroundScale = 1.0f;
+        backgroundOffsetX = 0f;
+        backgroundOffsetY = 0f;
+    }
 }

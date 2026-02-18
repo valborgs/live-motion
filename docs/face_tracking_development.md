@@ -53,6 +53,8 @@
 43. [모델/배경 리스트 정렬 순서 변경](#43-모델배경-리스트-정렬-순서-변경-2026-02-12-업데이트)
 44. [모델 뷰 영상 녹화 기능](#44-모델-뷰-영상-녹화-기능-2026-02-12-업데이트)
 45. [녹화 영상/음성 분리 저장 기능](#45-녹화-영상음성-분리-저장-기능-2026-02-12-업데이트)
+46. [녹화 중 앱 크래시 및 저장 시 ANR 수정](#46-녹화-중-앱-크래시-및-저장-시-anr-수정-2026-02-12-업데이트)
+47. [배경 확대/이동 기능 및 원본 크기 표시](#47-배경-확대이동-기능-및-원본-크기-표시-2026-02-18-업데이트)
 
 ---
 
@@ -5291,3 +5293,191 @@ private fun stopRecording() {
 |------|----------|
 | `core/live2d/.../EglRecordHelper.java` | `lockHardwareCanvas()` → `lockCanvas(null)` 변경, Javadoc 소프트웨어 캔버스 설명 추가 |
 | `feature/studio/.../StudioViewModel.kt` | `Dispatchers`/`withContext` import 추가, `stopRecording()`에 IDLE 가드 추가, 4개 함수의 I/O 작업을 `withContext(Dispatchers.IO)`로 래핑 |
+
+## 47. 배경 확대/이동 기능 및 원본 크기 표시 (2026-02-18 업데이트)
+
+### 개요
+
+StudioScreen에서 배경 이미지를 제스처로 확대/축소·이동할 수 있는 기능을 추가했다.
+동시에 배경 표시 방식을 기존 center-crop에서 **원본 픽셀 크기** 기반으로 변경하여, 이미지 밖 빈 공간이 자연스럽게 노출되도록 했다.
+
+### 설계 원칙
+
+- **원본 크기 기준 표시**: scale=1.0일 때 이미지 픽셀과 화면 픽셀이 1:1로 매핑, 중앙 배치
+- **빈 공간 허용**: 축소 또는 이동 시 이미지 밖 영역에 배경색(기본: 흰색)이 노출됨
+- **모델 제스처 ↔ 배경 제스처 상호 배타**: 두 모드는 동시에 활성화될 수 없음
+- **리셋 버튼 통합**: 기존 "리셋" 버튼이 모델 Transform + 배경 Transform을 모두 초기화
+
+### 배경 렌더링 방식 변경 — `LAppMinimumDelegate.java`
+
+**이전 (center-crop)**: UV 좌표를 조작하여 화면을 항상 꽉 채움
+
+```java
+// 비율 계산 후 UV를 잘라냄 → 이미지 밖이 절대 보이지 않음
+float uvLeft = offset; float uvRight = 1f - offset;
+backgroundSprite.renderImmediate(backgroundTextureId, uvVertex);
+```
+
+**이후 (원본 크기)**: 스프라이트 rect를 이미지 크기에 맞게 매 프레임 갱신, UV는 [0,1] 고정
+
+```java
+// 원본 픽셀 크기 × scale
+float spriteW = backgroundImageWidth  * backgroundScale;
+float spriteH = backgroundImageHeight * backgroundScale;
+
+// 화면 중앙 + 픽셀 단위 오프셋
+float centerX = windowWidth  * 0.5f + backgroundOffsetX;
+float centerY = windowHeight * 0.5f + backgroundOffsetY;
+
+backgroundSprite.resize(centerX, centerY, spriteW, spriteH);
+
+// 이미지 전체를 잘라내지 않고 표시
+final float[] uvVertex = { 1f, 0f,  0f, 0f,  0f, 1f,  1f, 1f };
+backgroundSprite.renderImmediate(backgroundTextureId, uvVertex);
+```
+
+추가된 필드 및 메서드:
+
+| 항목 | 설명 |
+|------|------|
+| `backgroundScale` (기본 1.0) | 배율. 범위 [0.1, 10.0] — 축소/확대 모두 가능 |
+| `backgroundOffsetX/Y` (기본 0) | 화면 중앙 기준 픽셀 오프셋. 클램프 없음 |
+| `setBackgroundScale(float)` | 배율 설정 |
+| `setBackgroundOffset(float, float)` | 오프셋 설정 |
+| `resetBackgroundTransform()` | scale=1, offset=(0,0) 초기화 |
+
+### 터치 이벤트 분기 — `Live2DGLSurfaceView.kt`
+
+```kotlin
+var isBackgroundZoomEnabled = false
+var isBackgroundMoveEnabled = false
+
+// 핀치: 배경 제스처 우선 처리
+override fun onScale(detector: ScaleGestureDetector): Boolean {
+    if (isBackgroundZoomEnabled) {
+        val delegate = LAppMinimumDelegate.getInstance()
+        delegate.setBackgroundScale(delegate.backgroundScale * detector.scaleFactor)
+        return true
+    }
+    // 기존 모델 줌 ...
+}
+
+// 드래그: 픽셀 단위 직접 전달, GL 좌표계 Y 반전
+if (isBackgroundMoveEnabled) {
+    val deltaX = x - lastTouchX
+    val deltaY = y - lastTouchY
+    queueEvent {
+        val delegate = LAppMinimumDelegate.getInstance()
+        delegate.setBackgroundOffset(
+            delegate.backgroundOffsetX + deltaX,
+            delegate.backgroundOffsetY - deltaY  // 화면 Y(↓) vs GL Y(↑)
+        )
+    }
+} else if (isMoveEnabled) { /* 모델 이동 */ }
+```
+
+`ACTION_DOWN` / `ACTION_UP`에서도 배경 이동 모드 시 Live2D 터치 이벤트 전달 차단.
+
+### Effect 시스템 확장 — `Live2DUiEffect.kt`
+
+```kotlin
+data object ResetBackgroundTransform : Live2DUiEffect
+```
+
+### Composable 파라미터 확장 — `Live2DScreen.kt`
+
+```kotlin
+fun Live2DScreen(
+    isBackgroundGestureEnabled: Boolean = false,  // 추가
+    // ...
+) {
+    LaunchedEffect(isBackgroundGestureEnabled) {
+        glView.isBackgroundZoomEnabled = isBackgroundGestureEnabled
+        glView.isBackgroundMoveEnabled = isBackgroundGestureEnabled
+    }
+
+    // effect 처리
+    is Live2DUiEffect.ResetBackgroundTransform ->
+        LAppMinimumDelegate.getInstance().resetBackgroundTransform()
+}
+```
+
+### MVI 확장
+
+**`StudioUiIntent.kt`**:
+```kotlin
+data object ToggleBackgroundGesture : StudioUiIntent
+```
+
+**`StudioViewModel.kt`** — 상호 배타 토글 + 리셋 통합:
+```kotlin
+data class StudioUiState(
+    val isBackgroundGestureEnabled: Boolean = false,  // 추가
+    // ...
+)
+
+private fun toggleGesture() {
+    _uiState.update {
+        val newGesture = !it.isGestureEnabled
+        it.copy(
+            isGestureEnabled = newGesture,
+            // 모델 ON → 배경 OFF
+            isBackgroundGestureEnabled = if (newGesture) false else it.isBackgroundGestureEnabled,
+        )
+    }
+}
+
+private fun toggleBackgroundGesture() {
+    _uiState.update {
+        val newBgGesture = !it.isBackgroundGestureEnabled
+        it.copy(
+            isBackgroundGestureEnabled = newBgGesture,
+            // 배경 ON → 모델 OFF
+            isGestureEnabled = if (newBgGesture) false else it.isGestureEnabled,
+        )
+    }
+}
+
+private fun resetTransform() {
+    _live2dEffect.trySend(Live2DUiEffect.ResetTransform)
+    _live2dEffect.trySend(Live2DUiEffect.ResetBackgroundTransform)  // 추가
+}
+```
+
+### UI — `StudioScreen.kt`
+
+Portrait / Landscape 양쪽의 토글 버튼 영역에 "배경 이동" 버튼 추가 (기존 "확대/이동" 바로 아래):
+
+```kotlin
+StudioToggleButton(
+    text = stringResource(R.string.studio_background_gesture),
+    emoji = "🖼️",
+    checked = uiState.isBackgroundGestureEnabled,
+    activeColor = MaterialTheme.colorScheme.tertiary,
+    onCheckedChange = { onIntent(StudioUiIntent.ToggleBackgroundGesture) },
+)
+```
+
+### 다국어 문자열 (`studio_background_gesture`)
+
+| locale | 문자열 |
+|--------|--------|
+| ko (기본) | 배경 이동 |
+| en | BG Move |
+| ja | 背景移動 |
+| zh-CN | 背景移动 |
+| zh-TW | 背景移動 |
+| in | Geser Latar |
+
+### 관련 파일
+
+| 파일 | 변경 내용 |
+|------|----------|
+| `core/live2d/.../LAppMinimumDelegate.java` | center-crop 제거 → 원본 크기 + 스프라이트 위치 방식으로 변경; `backgroundScale/OffsetX/Y` 필드·메서드 추가; scale 범위 [0.1, 10.0], offset 클램프 없음 |
+| `core/live2d/.../Live2DGLSurfaceView.kt` | `isBackgroundZoomEnabled/MoveEnabled` 플래그 추가; 핀치·드래그 배경 분기 추가; 드래그 델타를 픽셀 단위로 변경 |
+| `core/live2d/.../Live2DUiEffect.kt` | `ResetBackgroundTransform` 추가 |
+| `core/live2d/.../Live2DScreen.kt` | `isBackgroundGestureEnabled` 파라미터 추가; LaunchedEffect 및 effect 처리 추가 |
+| `feature/studio/.../StudioUiIntent.kt` | `ToggleBackgroundGesture` 추가 |
+| `feature/studio/.../StudioViewModel.kt` | `isBackgroundGestureEnabled` 상태 추가; 상호 배타 토글 로직; `resetTransform()`에 배경 리셋 추가 |
+| `feature/studio/.../StudioScreen.kt` | Portrait/Landscape 양쪽에 배경 이동 토글 버튼 추가; `Live2DScreen`에 파라미터 전달 |
+| `feature/studio/src/main/res/values*/strings.xml` | `studio_background_gesture` 6개 언어 추가 |

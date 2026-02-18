@@ -44,6 +44,7 @@
     <string name="studio_gpu">GPU</string>
     <string name="studio_cpu">CPU</string>
     <string name="studio_gesture">Zoom/Geser</string>
+    <string name="studio_background_gesture">Geser Latar</string>
     <string name="studio_reset">Reset</string>
     <string name="studio_preview">Pratinjau</string>
     <string name="studio_recording">Rekam</string>

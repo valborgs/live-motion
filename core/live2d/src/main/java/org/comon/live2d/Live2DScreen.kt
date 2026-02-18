@@ -22,6 +22,7 @@ fun Live2DScreen(
     modelSource: ModelSource? = null,
     faceParams: Map<String, Float>? = null,
     isGestureEnabled: Boolean = false,
+    isBackgroundGestureEnabled: Boolean = false,
     backgroundPath: String? = null,
     effectFlow: Flow<Live2DUiEffect>? = null,
     onModelLoaded: (() -> Unit)? = null,
@@ -35,10 +36,16 @@ fun Live2DScreen(
         Live2DGLSurfaceView(context)
     }
 
-    // 제스처 모드 업데이트 (드래그 이동 + 핀치 확대/축소)
+    // 모델 제스처 모드 업데이트 (드래그 이동 + 핀치 확대/축소)
     LaunchedEffect(isGestureEnabled) {
         glView.isZoomEnabled = isGestureEnabled
         glView.isMoveEnabled = isGestureEnabled
+    }
+
+    // 배경 제스처 모드 업데이트 (드래그 이동 + 핀치 확대/축소)
+    LaunchedEffect(isBackgroundGestureEnabled) {
+        glView.isBackgroundZoomEnabled = isBackgroundGestureEnabled
+        glView.isBackgroundMoveEnabled = isBackgroundGestureEnabled
     }
 
     // Live2D UI Effect 처리
@@ -59,6 +66,9 @@ fun Live2DScreen(
                             is Live2DUiEffect.StartMotion -> manager.startMotion(effect.path)
                             is Live2DUiEffect.ClearMotion -> manager.clearMotion()
                             is Live2DUiEffect.ResetTransform -> manager.resetModelTransform()
+                            is Live2DUiEffect.ResetBackgroundTransform -> {
+                                LAppMinimumDelegate.getInstance().resetBackgroundTransform()
+                            }
                             is Live2DUiEffect.SetRecordingSurface -> { /* handled above */ }
                         }
                     }

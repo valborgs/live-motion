@@ -8,9 +8,13 @@ import android.view.Surface
 
 class Live2DGLSurfaceView(context: Context): GLSurfaceView(context) {
 
-    // 제스처 모드
+    // 모델 제스처 모드
     var isZoomEnabled = false
     var isMoveEnabled = false
+
+    // 배경 제스처 모드
+    var isBackgroundZoomEnabled = false
+    var isBackgroundMoveEnabled = false
 
     // 렌더러 참조 (녹화용)
     private val glRenderer = GLRendererMinimum()
@@ -29,8 +33,16 @@ class Live2DGLSurfaceView(context: Context): GLSurfaceView(context) {
     // 핀치 줌 감지기
     private val scaleGestureDetector = ScaleGestureDetector(context, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
+            if (isBackgroundZoomEnabled) {
+                val scaleFactor = detector.scaleFactor
+                queueEvent {
+                    val delegate = LAppMinimumDelegate.getInstance()
+                    delegate.setBackgroundScale(delegate.backgroundScale * scaleFactor)
+                }
+                return true
+            }
             if (!isZoomEnabled) return false
-            
+
             val scaleFactor = detector.scaleFactor
             queueEvent {
                 val manager = LAppMinimumLive2DManager.getInstance()
@@ -74,7 +86,7 @@ class Live2DGLSurfaceView(context: Context): GLSurfaceView(context) {
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         // 핀치 줌 감지기에 항상 이벤트 전달 (줌 활성화 시)
-        if (isZoomEnabled) {
+        if (isZoomEnabled || isBackgroundZoomEnabled) {
             scaleGestureDetector.onTouchEvent(event)
         }
 
@@ -92,7 +104,7 @@ class Live2DGLSurfaceView(context: Context): GLSurfaceView(context) {
                 lastTouchY = y
                 isDragging = false
 
-                if (!isMoveEnabled) {
+                if (!isMoveEnabled && !isBackgroundMoveEnabled) {
                     queueEvent {
                         LAppMinimumDelegate.getInstance().onTouchBegan(x, y)
                     }
@@ -114,7 +126,23 @@ class Live2DGLSurfaceView(context: Context): GLSurfaceView(context) {
                     return true
                 }
 
-                if (isMoveEnabled) {
+                if (isBackgroundMoveEnabled) {
+                    // 배경 이동 모드: 스프라이트 위치 이동 (픽셀 단위)
+                    val deltaX = x - lastTouchX
+                    val deltaY = y - lastTouchY
+
+                    queueEvent {
+                        val delegate = LAppMinimumDelegate.getInstance()
+                        delegate.setBackgroundOffset(
+                            delegate.backgroundOffsetX + deltaX,
+                            delegate.backgroundOffsetY - deltaY  // GL 좌표계는 Y 반전
+                        )
+                    }
+
+                    lastTouchX = x
+                    lastTouchY = y
+                    isDragging = true
+                } else if (isMoveEnabled) {
                     // 이동 모드: 캐릭터 위치 이동
                     val deltaX = (x - lastTouchX) / width * 2f
                     val deltaY = -(y - lastTouchY) / height * 2f  // Y축 반전
@@ -138,7 +166,7 @@ class Live2DGLSurfaceView(context: Context): GLSurfaceView(context) {
             }
 
             MotionEvent.ACTION_UP -> {
-                if (!isMoveEnabled) {
+                if (!isMoveEnabled && !isBackgroundMoveEnabled) {
                     queueEvent {
                         LAppMinimumDelegate.getInstance().onTouchEnd(x, y)
                     }

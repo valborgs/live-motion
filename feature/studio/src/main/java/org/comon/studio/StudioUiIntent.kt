@@ -6,8 +6,11 @@ package org.comon.studio
  * MVI 패턴에서 사용자 액션을 표현하는 sealed interface입니다.
  */
 sealed interface StudioUiIntent {
-    /** 제스처 모드 토글 (드래그 이동 + 핀치 확대/축소) */
+    /** 모델 제스처 모드 토글 (드래그 이동 + 핀치 확대/축소) */
     data object ToggleGesture : StudioUiIntent
+
+    /** 배경 제스처 모드 토글 (배경 확대/이동) */
+    data object ToggleBackgroundGesture : StudioUiIntent
 
     /** 카메라 프리뷰 표시 토글 */
     data object TogglePreview : StudioUiIntent

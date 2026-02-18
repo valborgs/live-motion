@@ -161,6 +161,7 @@ fun StudioScreen(
                 modelSource = modelSource,
                 faceParams = faceParams,
                 isGestureEnabled = uiState.isGestureEnabled,
+                isBackgroundGestureEnabled = uiState.isBackgroundGestureEnabled,
                 backgroundPath = uiState.backgroundPath,
                 effectFlow = viewModel.live2dEffect,
                 onModelLoaded = { viewModel.onIntent(StudioUiIntent.OnModelLoaded) },
@@ -316,6 +317,14 @@ private fun StudioScreenContent(
                                 onCheckedChange = { onIntent(StudioUiIntent.ToggleGesture) },
                                 modifier = Modifier.fillMaxWidth()
                             )
+                            StudioToggleButton(
+                                text = stringResource(R.string.studio_background_gesture),
+                                emoji = "\uD83D\uDDBC\uFE0F",
+                                checked = uiState.isBackgroundGestureEnabled,
+                                activeColor = MaterialTheme.colorScheme.tertiary,
+                                onCheckedChange = { onIntent(StudioUiIntent.ToggleBackgroundGesture) },
+                                modifier = Modifier.fillMaxWidth()
+                            )
                             StudioIconButton(
                                 text = stringResource(R.string.studio_reset),
                                 emoji = "🔄",
@@ -436,6 +445,13 @@ private fun StudioScreenContent(
                                     checked = uiState.isGestureEnabled,
                                     onCheckedChange = { onIntent(StudioUiIntent.ToggleGesture) },
                                     activeColor = MaterialTheme.colorScheme.secondary
+                                )
+                                StudioToggleButton(
+                                    text = stringResource(R.string.studio_background_gesture),
+                                    emoji = "\uD83D\uDDBC\uFE0F",
+                                    checked = uiState.isBackgroundGestureEnabled,
+                                    onCheckedChange = { onIntent(StudioUiIntent.ToggleBackgroundGesture) },
+                                    activeColor = MaterialTheme.colorScheme.tertiary
                                 )
                                 StudioIconButton(
                                     emoji = "🔄",

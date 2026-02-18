@@ -44,6 +44,7 @@
     <string name="studio_gpu">GPU</string>
     <string name="studio_cpu">CPU</string>
     <string name="studio_gesture">拡大/移動</string>
+    <string name="studio_background_gesture">背景移動</string>
     <string name="studio_reset">リセット</string>
     <string name="studio_preview">プレビュー</string>
     <string name="studio_recording">録画</string>
