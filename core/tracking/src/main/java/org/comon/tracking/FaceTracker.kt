@@ -140,6 +140,7 @@ class FaceTracker(
                 }
                 .setNumFaces(1)
                 .setOutputFaceBlendshapes(true) // 눈, 입 벌림 계산에 사용
+                .setOutputFacialTransformationMatrixes(true) // Head Pose (Yaw, Pitch, Roll) 계산에 사용
 
             faceLandmarker = FaceLandmarker.createFromOptions(context, optionsBuilder.build())
 
@@ -168,6 +169,7 @@ class FaceTracker(
                         }
                         .setNumFaces(1)
                         .setOutputFaceBlendshapes(true)
+                        .setOutputFacialTransformationMatrixes(true)
 
                     faceLandmarker = FaceLandmarker.createFromOptions(context, cpuOptionsBuilder.build())
 
@@ -333,8 +335,12 @@ class FaceTracker(
         val classifications = blendshapesList?.getOrNull(0) ?: return
         val scores = classifications.associate { it.categoryName() to it.score() }
 
+        // Transformation Matrix (4x4) 추출
+        val matrixList = if (result.facialTransformationMatrixes().isPresent) result.facialTransformationMatrixes().get() else null
+        val transformationMatrix = matrixList?.getOrNull(0)
+
         // 보정된 랜드마크로 Orientation (Euler angles) 추정
-        var pose = calculatePose(rotatedLandmarks, scores)
+        var pose = calculatePose(rotatedLandmarks, scores, transformationMatrix)
         
         // 자동 보정 로직
         if (!isCalibrated) {
@@ -394,28 +400,56 @@ class FaceTracker(
         Log.d(TAG, "[Calibration] Reset due to face loss.")
     }
 
-    private fun calculatePose(landmarks: List<NormalizedLandmark>, scores: Map<String, Float>): FacePose {
+    private fun calculatePose(
+        landmarks: List<NormalizedLandmark>, 
+        scores: Map<String, Float>, 
+        transformationMatrix: FloatArray?
+    ): FacePose {
+        var yawNorm: Float
+        var pitchNorm: Float
+        var rollNorm: Float
 
-        // 주요 포인트: 코(4), 왼눈(33), 오른눈(263)
-        val nose = landmarks[4]
-        val leftEye = landmarks[33]
-        val rightEye = landmarks[263]
+        if (transformationMatrix != null && transformationMatrix.size >= 16) {
+            // Transformation Matrix (4x4, row-major 배열로 가정)에서 Rotation Matrix(3x3) 성분 추출
+            // m00 m01 m02 m03
+            // m10 m11 m12 m13
+            // m20 m21 m22 m23
+            // m30 m31 m32 m33
 
-        // 1. Yaw (좌우 회전): 정규화된 값 (-1.0 ~ 1.0) 추출
-        // 거울 모드: 전면 카메라이므로 방향 반전 (- 부호)
-        val yawNorm = -(rightEye.z() - leftEye.z()) * 15f
+            // Roll (Z축 회전): atan2(m10, m00)
+            val rollRad = Math.atan2(transformationMatrix[4].toDouble(), transformationMatrix[0].toDouble())
+            
+            // Pitch (X축 회전): asin(-m20)
+            val pitchRad = Math.asin(-transformationMatrix[8].toDouble())
+            
+            // Yaw (Y축 회전): atan2(m21, m22)
+            val yawRad = Math.atan2(transformationMatrix[9].toDouble(), transformationMatrix[10].toDouble())
 
-        // 2. Pitch (상하 회전): Z좌표(깊이) 기반 계산
-        // Y좌표는 Yaw 회전 시 원근법 왜곡이 심하므로 Z좌표 사용
-        // 고개를 숙이면 코끝이 앞으로(Z 감소), 들면 뒤로(Z 증가)
-        val noseBridge = landmarks[6]  // 코 다리 (미간 근처)
-        val pitchZ = nose.z() - noseBridge.z()  // 코끝과 코 다리의 Z 차이
-        val pitchNorm = pitchZ * 15f  // 민감도 조정
+            // MediaPipe Matrix -> 아바타 제어 방향에 맞게 스케일 및 부호 조정
+            // 카메라에 비치는 거울 모드(사용자의 실제 움직임 방향과 화면상 아바타의 이동 방향 일치)
+            val pitchDeg = Math.toDegrees(pitchRad).toFloat()
+            val yawDeg = Math.toDegrees(yawRad).toFloat()
+            val rollDeg = Math.toDegrees(rollRad).toFloat()
 
-        // 3. Roll (기울기): 실측 각도를 정규화 (-1.0 ~ 1.0)
-        // 거울 모드: 사용자와 같은 방향으로 기울어지도록 반전 (- 부호)
-        val rollDeg = atan2(rightEye.y() - leftEye.y(), rightEye.x() - leftEye.x()) * (180 / Math.PI).toFloat()
-        val rollNorm = -rollDeg / 20f
+            // 경험적 민감도(Scale) 및 거울반전 부호 세팅
+            // 기존 - 에서 + 로 변경하여 사용자와 거울처럼 동일한 방향으로 움직이도록 함
+            yawNorm = (yawDeg / 40f)     
+            pitchNorm = (pitchDeg / 40f) 
+            rollNorm = (rollDeg / 40f)   
+        } else {
+            // Matrix 정보가 없을 경우 (Fallback) 기존 랜드마크 좌표 기반 계산 사용
+            val nose = landmarks[4]
+            val leftEye = landmarks[33]
+            val rightEye = landmarks[263]
+            val noseBridge = landmarks[6]
+
+            yawNorm = -(rightEye.z() - leftEye.z()) * 15f
+            val pitchZ = nose.z() - noseBridge.z()
+            pitchNorm = pitchZ * 15f
+            
+            val rollDegFallback = atan2(rightEye.y() - leftEye.y(), rightEye.x() - leftEye.x()) * (180 / Math.PI).toFloat()
+            rollNorm = -rollDegFallback / 20f
+        }
 
         // ===========================================
         // 4. 시선 추적 (Iris Tracking)
