@@ -416,25 +416,42 @@ class FaceTracker(
             // m20 m21 m22 m23
             // m30 m31 m32 m33
 
-            // Roll (Z축 회전): atan2(m10, m00)
-            val rollRad = Math.atan2(transformationMatrix[4].toDouble(), transformationMatrix[0].toDouble())
+            // MediaPipe Facial Transformation Matrix (4x4, Column-major)
+            // OpenGL/MediaPipe 환경에 맞춰 Column-major 순서로 인덱스 매핑:
+            // R00(0)  R01(4)  R02(8)  Tx(12)
+            // R10(1)  R11(5)  R12(9)  Ty(13)
+            // R20(2)  R21(6)  R22(10) Tz(14)
+            // 0(3)    0(7)    0(11)   1(15)
+
+            val r00 = transformationMatrix[0].toDouble()
+            val r10 = transformationMatrix[1].toDouble()
+            val r22 = transformationMatrix[10].toDouble()
+
+            // 기기 방향(Portrait) 회전 적용 환경에서 각도 추출
+            // 사용자가 "좌우/상하 움직임은 정상"이라고 한 상태를 유지하기 위해 기존 인덱스 로직을 활용하되,
+            // Roll 추출 로직만 제공된 표준 공식(atan2(R10, R00))으로 수정합니다.
             
-            // Pitch (X축 회전): asin(-m20)
-            val pitchRad = Math.asin(-transformationMatrix[8].toDouble())
+            // 기존 Pitch 동작을 유지하는 추출 (asin(-R02) 사용 시) -> transformationMatrix[8]은 R02
+            val r02 = transformationMatrix[8].toDouble()
+            val pitchRad = Math.asin(-r02)
             
-            // Yaw (Y축 회전): atan2(m21, m22)
-            val yawRad = Math.atan2(transformationMatrix[9].toDouble(), transformationMatrix[10].toDouble())
+            // 기존 Yaw 동작을 유지하는 추출 (atan2(R12, R22) 사용 시) -> transformationMatrix[9]은 R12
+            val r12 = transformationMatrix[9].toDouble()
+            val yawRad = Math.atan2(r12, r22)
+
+            // Roll (Z축 회전): 공식 atan2(R10, R00) 적용 (Column-Major)
+            val rollRad = Math.atan2(r10, r00)
 
             // MediaPipe Matrix -> 아바타 제어 방향에 맞게 스케일 및 부호 조정
-            // 카메라에 비치는 거울 모드(사용자의 실제 움직임 방향과 화면상 아바타의 이동 방향 일치)
             val pitchDeg = Math.toDegrees(pitchRad).toFloat()
             val yawDeg = Math.toDegrees(yawRad).toFloat()
             val rollDeg = Math.toDegrees(rollRad).toFloat()
 
             // 경험적 민감도(Scale) 및 거울반전 부호 세팅
-            // 기존 - 에서 + 로 변경하여 사용자와 거울처럼 동일한 방향으로 움직이도록 함
             yawNorm = (yawDeg / 40f)     
             pitchNorm = (pitchDeg / 40f) 
+            
+            // 거울 모드: 실제 사용자의 움직임 방향과 화면 속 캐릭터의 갸우뚱(Roll) 방향이 일치하도록 부호 적용
             rollNorm = (rollDeg / 40f)   
         } else {
             // Matrix 정보가 없을 경우 (Fallback) 기존 랜드마크 좌표 기반 계산 사용
@@ -484,10 +501,14 @@ class FaceTracker(
         val openL = (1f - eyeL) + (eyeWideL * 0.8f)
         val openR = (1f - eyeR) + (eyeWideR * 0.8f)
 
+        // 중요: yaw, pitch, roll에 대해 여기서 미리 coerceIn(-1.5f, 1.5f)를 해버리면,
+        // 기기 센서 회전에 의해 (예: Roll이 -114도로 2.85의 norm을 가질 때) 상한/하한에 걸려 데이터가 1.5로 고정됩니다.
+        // 그러면 5초간 진행되는 영점(Calibration) 보정에서 계속 1.5만 수집해 최종값이 정확히 0.00으로 굳어버리는 버그가 생깁니다.
+        // 따라서 원시 그대로 넘겨준 후, 추후 MapFacePoseUseCase 같은 최종 매핑 단계에서 Live2D 파라미터 범위를 제한하는 것이 맞습니다.
         return FacePose(
-            yaw = yawNorm.coerceIn(-1.5f, 1.5f),
-            pitch = pitchNorm.coerceIn(-1.5f, 1.5f),
-            roll = rollNorm.coerceIn(-1.5f, 1.5f),
+            yaw = yawNorm,
+            pitch = pitchNorm,
+            roll = rollNorm,
             eyeLOpen = openL,
             eyeROpen = openR,
             mouthOpen = mouth,

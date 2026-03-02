@@ -108,7 +108,8 @@ class MapFacePoseUseCase {
         // AngleZ는 실측 고개 기울기(roll)와 드래그 로직 특유의 수식(X*Y)을 혼합
         val dragStyleZ = smoothed.yaw * smoothed.pitch * (-30f) * sensitivity.yaw * sensitivity.pitch
         val realRollZ = smoothed.roll * 30f * sensitivity.roll
-        params["ParamAngleZ"] = (realRollZ + dragStyleZ).coerceIn(-30f, 30f)
+        val finalAngleZ = (realRollZ + dragStyleZ).coerceIn(-30f, 30f)
+        params["ParamAngleZ"] = finalAngleZ
 
         // ===========================================
         // 눈 파라미터

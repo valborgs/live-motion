@@ -55,6 +55,7 @@
 45. [녹화 영상/음성 분리 저장 기능](#45-녹화-영상음성-분리-저장-기능-2026-02-12-업데이트)
 46. [녹화 중 앱 크래시 및 저장 시 ANR 수정](#46-녹화-중-앱-크래시-및-저장-시-anr-수정-2026-02-12-업데이트)
 47. [배경 확대/이동 기능 및 원본 크기 표시](#47-배경-확대이동-기능-및-원본-크기-표시-2026-02-18-업데이트)
+48. [하이브리드 트래킹 및 갸우뚱(Roll) 오류 수정](#48-하이브리드-트래킹-및-갸우뚱roll-오류-수정-2026-03-03-업데이트)
 
 ---
 
@@ -5481,3 +5482,39 @@ StudioToggleButton(
 | `feature/studio/.../StudioViewModel.kt` | `isBackgroundGestureEnabled` 상태 추가; 상호 배타 토글 로직; `resetTransform()`에 배경 리셋 추가 |
 | `feature/studio/.../StudioScreen.kt` | Portrait/Landscape 양쪽에 배경 이동 토글 버튼 추가; `Live2DScreen`에 파라미터 전달 |
 | `feature/studio/src/main/res/values*/strings.xml` | `studio_background_gesture` 6개 언어 추가 |
+
+---
+
+## 48. 하이브리드 트래킹 및 갸우뚱(Roll) 오류 수정 (2026-03-03 업데이트)
+
+### 배경
+- MediaPipe Face Landmarker의 `face_blendshapes` (Blendshapes) 데이터만으로는 얼굴의 3차원적 투영(회전)인 Yaw, Pitch, Roll을 높은 정확성과 민감도로 추적하는 데 한계가 있었음.
+- 이를 개선하기 위해 표정(눈 깜빡임, 입 벌림 등)은 기존 방식대로 Blendshapes를 활용하되, 얼굴의 전반적인 방향 회전(Yaw, Pitch, Roll)은 Face Landmarker가 제공하는 `facial_transformation_matrix` (4x4 행렬)를 파싱하여 적용하는 **하이브리드 트래킹(Hybrid Tracking) 방식**을 도입.
+- 도입 과정에서 상하좌우(Pitch, Yaw) 회전은 정상적으로 연동되었으나, 고개를 어깨 방향으로 갸우뚱(Roll) 하는 동작이 Live2D 아바타에 전혀 반영되지 않는 버그가 발생.
+
+### 구현 내용 및 트러블슈팅
+
+#### 1. 하이브리드 트래킹 로직 분리 및 최적화
+`FaceTracker.kt`에서 얼굴 파라미터를 추출하는 방식을 이원화:
+- **얼굴 회전 추출**: `transformationMatrix` 값에서 오일러 각도를 추출. MediaPipe는 OpenGL 디스플레이 형식에 맞춘 Column-major(열 중심) 행렬 형식을 띠고 있으므로 인덱스를 매핑해 R12, R22를 통한 Yaw와 R02를 통한 Pitch, R10, R00을 이용한 Roll 공식을 적용함.
+- **표정 추출**: 연산량이 적고 안정적인 기존 `face_blendshapes` 속성 활용 유지 (눈 개폐, 입 벌림).
+  
+#### 2. Roll 값이 0.0으로 무시(Clamp)되는 현상 원인 파악 및 수정
+- **원인 파악**: 
+  1. 안드로이드 모바일 기기의 카메라 센서는 세로 모드(Portrait) 환경에서 하드웨어적으로 보통 90도 회전되어 탑재되어 있어 Matrix 내부의 기초 Roll 값이 약 -90도~-114도 가량 오프셋(Offset) 된 상태로 추출됨.
+  2. 추출된 원본 값을 정규화 모델(`rollDeg / 40f`)에 대입하면 `2.85`와 같이 기본 범위를 초과하는 매우 큰 절대값이 도출됨.
+  3. 기존 코드는 `FacePose` 데이터 클래스 객체를 생성하는 단계에서 `coerceIn(-1.5f, 1.5f)`를 통해 안전 상/하한선을 미리 잘라내버렸음(Clip).
+  4. 따라서 앱 초기화 후 5초 동안 진행되는 _자동 영점 트래킹 보정(Auto-Calibration)_ 에 `1.5`라는 한계점 라인만이 지속적으로 수집됨.
+  5. 보정이 완료된 뒤 실시간 트래킹 모드에 들어갔을때 새로 수집되는 값이 상한선에 잘려 (1.5)가 들어오고, 여기서 오프셋 보정치 (1.5)를 빼는 로직이 작동하여 최종 실시간 `Roll` 변경 수치가 완벽하게 무시된 `0.00` 으로만 산출됨.
+- **해결 방안**: 
+  `FaceTracker.kt` 의 `FacePose` 생성 부위에서 `yawNorm`, `pitchNorm`, `rollNorm` 값에 강제하던 `coerceIn` 제약식을 완전히 제거함. 가공되지 않은 순수한 카메라 회전 데이터를 그대로 영점 보정 로직(`offsetRoll`)에 통과시킨 뒤, 앱 내 트래킹의 최종 연산처인 `MapFacePoseUseCase` 영역에서만 Live2D 파라미터(`ParamAngleZ`) 입력 직전에 범위를 안전하게 클램핑(`coerceIn(-30f, 30f)`)하도록 리팩토링 및 수정 완료.
+
+#### 3. 거울 모드 (Mirror Tracking) 호환성 설정
+- 갸우뚱 동작이 정상적으로 수신된 이후, 아바타가 사용자의 움직임과 역방향으로 기우는 문제 해결.
+- `rollNorm`의 공식을 `-(rollDeg / 40f)`에서 `(rollDeg / 40f)`로 부호를 반전시켜, 실제 사용자(유저)의 갸우뚱 방향과 카메라상 아바타의 방향이 일관성을 가지는 직관적인 거울 모드를 완성함.
+
+### 관련 파일
+| 파일 | 변경 내용 |
+|------|----------|
+| `core/tracking/src/main/java/.../FaceTracker.kt` | Transformation Matrix에서의 올바른 Roll 행렬 추출 (R10, R00 활용). `FacePose` 데이터의 사전 `coerceIn` 클램핑 코드 제거. Roll의 부호 반전을 통한 거울 모드 적용. |
+| `domain/src/main/java/.../MapFacePoseUseCase.kt` | 추적 데이터를 받아 아바타의 `ParamAngleZ` 매개변수로 안전성 기반 연결 검증 로직. |
